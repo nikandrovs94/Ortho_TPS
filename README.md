@@ -16,10 +16,6 @@ The applications were developed to work in the centre in which the research was 
 
 Main OrthoPlan functions to review are 'write_phantom_file' and 'write_input_file' which create DOSXYZnrc phantom and input files respectively. The strings in these functions should be adjusted to suit the user needs for the Monte Carlo parameters.
 
-Furthermore, two DOSXYZnrc user code modifications were carried out:
-1) Lines of code used to 'zeroairdose' were copied and altered to zero dose in voxels with high density such as lead or gold.
-2) Maximum number of materials allowed in the phantom was increased from default 9 to 20 and appropriate fortran code was altered to read material number in the phantom files as double digits instead of single digits. OrthoPlan code writes double digit material numbers when generating the phantom file; for example first material on the list is '01' and not '1'.
-
 A custom PEGS4 file was created using EGSgui. Tissue compositions were taken from literature (references in aforementioned publication). Density correction files were generated using NIST tool eStar. The names of tissues from this PEGS file are used in Tissue Segmentation tab of OrthoPlan.
 
 Applications operate in Python 3.8 and all required Python packages are listed in the requirements.txt file.
