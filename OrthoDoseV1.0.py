@@ -1,6 +1,10 @@
-#=====================================================================================
-#=====================================IMPORTS=========================================
-#=====================================================================================
+#!/usr/bin/env python
+# coding: utf-8
+
+# # kV Dose distribution viewer
+
+# ## Import Libraries
+
 #Dash application modules
 import dash
 from dash import dash_table
@@ -8,14 +12,19 @@ from dash.dependencies import Input, Output, State
 from dash import dcc
 from dash import html
 from dash.exceptions import PreventUpdate
+import dash_bootstrap_components as dbc
 
 #Plotly modules
 import plotly.graph_objs as go
 from plotly.graph_objs import *
 
+
 #Windows modules
 import webbrowser
-from win32com.shell import shell
+
+#from win32com.shell #import shell
+import easygui
+import win32com.client
 import win32ui, win32con
 import sys
 import os
@@ -24,139 +33,21 @@ import os
 import numpy as np
 from skimage.draw import polygon
 
+
 #Extra modules
 import pandas as pd
 import pydicom as dcm
 from pydicom.dataset import Dataset, FileDataset
 
-#=====================================================================================
-#======================CONSTANTS - TO BE CHANGED BY BT USERS==========================
-#=====================================================================================
 
-#Dose to water (Gy) in the surface voxel on the central axis for each simulated applicator
-#Used to calculate the ratio of 'MC output' to 'measured output' for each applicator
-# and hence scale the MC dose distribution based on the simulated applicator and prescribed MU
-kv_outputs_mc = {
-    '70_20_2D':3.958506911759973e-19,
-    '70_20_3D':4.1503459962139987e-19,
-    '70_20_4D':4.2852819765688218e-19,
-    '70_20_5D':4.366870732268827e-19,
-    '70_20_6D':4.537034533030582e-19,
-    '100_20_2D':4.840150990293687e-19,
-    '100_20_3D':5.061577335418189e-19,
-    '100_20_4D':5.351807498163192e-19,
-    '100_20_5D':5.4113860613874605e-19,
-    '100_20_6D':5.541235789435803e-19,
-    '125_20_2D':4.171117399214944e-19,
-    '125_20_3D':4.447983290918233e-19,
-    '125_20_4D':4.589398794150027e-19,
-    '125_20_5D':4.8263939957620295e-19,
-    '125_20_6D':5.049022180268748e-19,
-    '70_30_8D':2.0070586216606875e-19,
-    '70_30_10D':2.0184092263603424e-19,
-    '70_30_14D':2.0217031392466074e-19,
-    '70_30_6x6':1.9945967591520616e-19,
-    '70_30_6x8':1.935017837717809e-19,
-    '70_30_10x10':2.0403153120062763e-19,
-    '70_30_10x14':2.073294907169787e-19,
-    '100_30_8D':2.4764959497228094e-19,
-    '100_30_10D':2.5631171060013474e-19,
-    '100_30_14D':2.7296612478926117e-19,
-    '100_30_6x6':2.46311481199651e-19,
-    '100_30_6x8':2.4565430348026873e-19,
-    '100_30_10x10':2.6205254302184537e-19,
-    '100_30_10x14':2.6666164308466577e-19,
-    '125_30_8D':2.206437438502784e-19,
-    '125_30_10D':2.3425521600181996e-19,
-    '125_30_14D':2.476058836507617e-19,
-    '125_30_6x6':2.1996290546821866e-19,
-    '125_30_6x8':2.23216543707321e-19,
-    '125_30_10x10':2.3593876919051205e-19,
-    '125_30_10x14':2.4575416197019804e-19,
-    '200_50_5D':8.381977204480659e-20,
-    '200_50_6x6':8.785661067657833e-20,
-    '200_50_6x8':8.694161123033447e-20,
-    '200_50_8x8':9.081629787707117e-20,
-    '200_50_6x10':8.845903367054842e-20,
-    '200_50_8x10':9.158250082490652e-20,
-    '200_50_10x10':9.537282728074242e-20,
-    '200_50_12x12':9.78160720577491e-20,
-    '200_50_8x15':9.763050777359724e-20,
-    '200_50_10x15':9.85248515694854e-20,
-    '200_50_15x15':1.0323234435310166e-19,
-    '200_50_10x20':9.783992368941467e-20,
-    '200_50_20x20':1.0734048962603096e-19
-}
-
-#Measured kilovoltage unit outputs on the surface of the water phantom 
-#on the centra axis of the beam for 100 MU
-#cGy/100MU divided by 10,000 = Gy/MU
-kv_outputs_real = {
-    '70_20_2D':193.1/10000,
-    '70_20_3D':203.5/10000,
-    '70_20_4D':208.8/10000,
-    '70_20_5D':214.5/10000,
-    '70_20_6D':218.5/10000,
-    '100_20_2D':183.9/10000,
-    '100_20_3D':195.9/10000,
-    '100_20_4D':203.6/10000,
-    '100_20_5D':208.5/10000,
-    '100_20_6D':212.0/10000,
-    '125_20_2D':174.1/10000,
-    '125_20_3D':186.4/10000,
-    '125_20_4D':195.6/10000,
-    '125_20_5D':202.0/10000,
-    '125_20_6D':208.6/10000,
-    '70_30_8D':99.1/10000,
-    '70_30_10D':100.0/10000,
-    '70_30_14D':102.6/10000,
-    '70_30_6x6':97.2/10000,
-    '70_30_6x8':98.4/10000,
-    '70_30_10x10':101.2/10000,
-    '70_30_10x14':101.4/10000,
-    '100_30_8D':99.1/10000,
-    '100_30_10D':100.0/10000,
-    '100_30_14D':104.9/10000,
-    '100_30_6x6':97.1/10000,
-    '100_30_6x8':98.3/10000,
-    '100_30_10x10':102.3/10000,
-    '100_30_10x14':103.2/10000,
-    '125_30_8D':97.1/10000,
-    '125_30_10D':100.0/10000,
-    '125_30_14D':105.4/10000,
-    '125_30_6x6':94.9/10000,
-    '125_30_6x8':95.9/10000,
-    '125_30_10x10':102.2/10000,
-    '125_30_10x14':103.4/10000,
-    '200_50_5D':85.9/10000,
-    '200_50_6x6':91.7/10000,
-    '200_50_6x8':94.9/10000,
-    '200_50_8x8':97.4/10000,
-    '200_50_6x10':95.5/10000,
-    '200_50_8x10':99.7/10000,
-    '200_50_10x10':100.0/10000,
-    '200_50_12x12':106.0/10000,
-    '200_50_8x15':102.1/10000,
-    '200_50_10x15':106.2/10000,
-    '200_50_15x15':110.1/10000,
-    '200_50_10x20':107.5/10000,
-    '200_50_20x20':113.2/10000,
-}
-
-#=====================================================================================
-#======================================FUNCTIONS======================================
-#=====================================================================================
-
-# Browsing/Directories functions
+# ## Browsing/Directories functions 
 def orientation_label(X, Y, T):
-    '''
-    Used to generate letters indicating CT right/left/ant/post/sup/inf in all 
-    appropriate plots.
-    '''
-    L = dict(x=X, y=Y, text=T, showarrow=False, font=dict(family='"Segoe UI",Arial,sans-serif', size=20, color="#ffffff"), 
-    bordercolor="#000000", borderwidth=2, borderpad=3, bgcolor="#f25504", opacity=1)
+    L = dict(x=X, y=Y, text=T, showarrow=False, font=dict(family='"Segoe UI",Arial,sans-serif', size=20, color="#ffffff"), bordercolor="#000000", borderwidth=2, borderpad=3, bgcolor="#f25504", opacity=1)
 
     return L
+
+# In[2]:
+
 
 def resource_path(relative_path):
     '''
@@ -170,17 +61,30 @@ def resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
+
+# In[3]:
+
+
 def gui_select_dir():
     '''
     Opens a browser and returns the path to the selected directory.
     '''
     try:
-        pidl, display_name, _ = shell.SHBrowseForFolder()
-        fname = shell.SHGetPathFromIDList(pidl)
+        browsertitle = 'Select a folder containing DICOM CT files'
+        #path = easygui.diropenbox(title=browsertitle, default='S:\Clinical Service\Treatment Planning\Orthovoltage MC Simulations\CT + Sim Data')
+        
+        
+        shell = win32com.client.Dispatch("Shell.Application")
+        start_path = 'S:\Clinical Service\Treatment Planning\Orthovoltage MC Simulations\CT + Sim Data'
+        folder = shell.BrowseForFolder(0, browsertitle,0,17)
+        path = folder.Self.Path
 
-        loc = str(fname).split("'")
+        #pidl, display_name, _ = shell.SHBrowseForFolder(0,'Select folder with DICOM CT files',0,'S:\Clinical Service\Treatment Planning\Orthovoltage MC Simulations\CT + Sim Data')
+        #fname = shell.SHGetPathFromIDList(pidl)
 
-        path = str(loc[1])
+        #loc = str(fname).split("'")
+
+        #path = str(loc[1])
 
     except:
         print('Failed to get directory!')
@@ -189,10 +93,17 @@ def gui_select_dir():
     return path 
 
 
+# In[4]:
+
+
 def gui_select_file(title, start_dir=None):
     '''
     Opens a browser and returns the path to the selected file.
     '''
+    
+    filepath = easygui.fileopenbox(title)
+    
+    
     fd = win32ui.CreateFileDialog(1)
 
     fd.SetOFNTitle(title)
@@ -203,6 +114,9 @@ def gui_select_file(title, start_dir=None):
     filepath = fd.GetPathName()
     
     return filepath
+
+
+# In[5]:
 
 
 def gui_save_file():
@@ -224,7 +138,10 @@ def gui_save_file():
     return n
 
 
-# Importing CT array and dose cube
+# # Importing CT array and dose cube
+
+# In[6]:
+
 
 def load_CT_array(array_path, allow_pickle=True):
     ct_array = np.load(array_path)
@@ -235,6 +152,9 @@ def load_CT_array(array_path, allow_pickle=True):
     zpos = ct_array[3]
     
     return voxels, xpos, ypos, zpos
+
+
+# In[7]:
 
 
 def create_DOSE_cube(my_path):
@@ -271,12 +191,41 @@ def create_DOSE_cube(my_path):
     fineygrid = np.arange(ypo[0], ypo[-1], SCAN.fine_y_step)
     zgrid = np.arange(zpo[0], zpo[-1], SCAN.z_step)
     print('Dose grid created!')
+
+    #fine_DOSE_cube = np.zeros((DOSE_cube.shape[0], len(fineygrid), len(finexgrid)))
+    
+    #Attempting to map instead of for loop
+    #Changing from adaptive to regular voxel resolution in each axial slice
+    #fine_dose_list = list(map(lambda axial_slice: interpolate.interp2d(xpo[:-1], ypo[:-1], axial_slice, kind='linear')(finexgrid,fineygrid),DOSE_cube))
+    #fine_DOSE_cube = np.array(fine_dose_list)
+
+    #fine_errors_list = list(map(lambda axial_slice: interpolate.interp2d(xpo[:-1], ypo[:-1], axial_slice, kind='linear')(finexgrid,fineygrid),ERROR_cube))
+    #fine_ERROR_cube = np.array(fine_errors_list)
+
+    #Changing from adaptive to regular voxel resolution in z direction to rotating the cube and repeating the above
+    #rotated_DOSE_cube = np.rot90(fine_DOSE_cube)
+    #rotated_ERROR_cube = np.rot90(fine_ERROR_cube)
+
+    #fine_dose_list2 = list(map(lambda axial_slice: interpolate.interp2d(finexgrid, zpo[:-1], axial_slice, kind='linear')(finexgrid,zgrid),rotated_DOSE_cube))
+    #fine_DOSE_cube2 = np.array(fine_dose_list2)
+    #fine_error_list2 = list(map(lambda axial_slice: interpolate.interp2d(finexgrid, zpo[:-1], axial_slice, kind='linear')(finexgrid,zgrid),rotated_ERROR_cube))
+    #fine_ERROR_cube2 = np.array(fine_error_list2)
+
+    #antirotated_DOSE_cube = np.rot90(fine_DOSE_cube2, k=-1)
+    #antirotated_ERROR_cube = np.rot90(fine_ERROR_cube2, k=-1)
+
+    #fine_PERCENTAGE_ERROR_cube = np.around((antirotated_ERROR_cube/antirotated_DOSE_cube)*100,1)
+    
+    #return antirotated_DOSE_cube, finexgrid, fineygrid, zgrid, fine_PERCENTAGE_ERROR_cube
     PERCENTAGE_ERROR_cube = np.around((ERROR_cube/DOSE_cube)*100,1)
 
     return DOSE_cube, finexgrid, fineygrid, zgrid, PERCENTAGE_ERROR_cube
 
 
-# Plotting CT 
+# ## Plotting CT 
+
+# In[8]:
+
 
 def plot_ROI(cube,slicez,slicex,slicey,window,plot_dose,min_dose,max_dose, cA, cS, cC, plot_contours):
 
@@ -305,7 +254,7 @@ def plot_ROI(cube,slicez,slicex,slicey,window,plot_dose,min_dose,max_dose, cA, c
         if hasattr(SCAN, 'dose_cube'):
             DOSE_cube_copy = np.copy(SCAN.updated_dose)
             ERROR_cube_copy = np.copy(SCAN.error_cube)
-            
+
             #Hiding zero dose and dose outside of selected range
             DOSE_cube_copy[DOSE_cube_copy==0] = None
             DOSE_cube_copy[DOSE_cube_copy<float(min_dose)] = None
@@ -750,6 +699,9 @@ def plot_ROI(cube,slicez,slicex,slicey,window,plot_dose,min_dose,max_dose, cA, c
     return saggital_fig, coronal_fig, axial_fig
 
 
+# In[9]:
+
+
 class patient:
     
     def __init__(self, cube, xs, ys, zs):
@@ -758,6 +710,10 @@ class patient:
         self.xs = xs
         self.ys = ys
         self.zs = zs
+
+
+# In[10]:
+
 
 def create_dcc_graph(fig):
     G = dcc.Graph(
@@ -775,10 +731,17 @@ def create_dcc_graph(fig):
     return G
 
 
+# In[11]:
+
+
 def find_index(array, value):
     index = (np.abs(array - value)).argmin()
     
     return index
+
+
+# In[12]:
+
 
 def update_slice_slider(view):
     #Update Slice slider values
@@ -830,9 +793,123 @@ def update_slice_slider(view):
     return Sstep, Smin, Smax, Svalue, Smarks 
 
 
-# Application
+# In[13]:
+
+
+#Reference values for different setup used to calculated absolute dose
+kv_outputs_mc = {
+    '70_20_2D':3.958506911759973e-19,
+    '70_20_3D':4.1503459962139987e-19,
+    '70_20_4D':4.2852819765688218e-19,
+    '70_20_5D':4.366870732268827e-19,
+    '70_20_6D':4.537034533030582e-19,
+    '100_20_2D':4.840150990293687e-19,
+    '100_20_3D':5.061577335418189e-19,
+    '100_20_4D':5.351807498163192e-19,
+    '100_20_5D':5.4113860613874605e-19,
+    '100_20_6D':5.541235789435803e-19,
+    '125_20_2D':4.171117399214944e-19,
+    '125_20_3D':4.447983290918233e-19,
+    '125_20_4D':4.589398794150027e-19,
+    '125_20_5D':4.8263939957620295e-19,
+    '125_20_6D':5.049022180268748e-19,
+    '70_30_8D':2.0070586216606875e-19,
+    '70_30_10D':2.0184092263603424e-19,
+    '70_30_14D':2.0217031392466074e-19,
+    '70_30_6x6':1.9945967591520616e-19,
+    '70_30_6x8':1.935017837717809e-19,
+    '70_30_10x10':2.0403153120062763e-19,
+    '70_30_10x14':2.073294907169787e-19,
+    '100_30_8D':2.4764959497228094e-19,
+    '100_30_10D':2.5631171060013474e-19,
+    '100_30_14D':2.7296612478926117e-19,
+    '100_30_6x6':2.46311481199651e-19,
+    '100_30_6x8':2.4565430348026873e-19,
+    '100_30_10x10':2.6205254302184537e-19,
+    '100_30_10x14':2.6666164308466577e-19,
+    '125_30_8D':2.206437438502784e-19,
+    '125_30_10D':2.3425521600181996e-19,
+    '125_30_14D':2.476058836507617e-19,
+    '125_30_6x6':2.1996290546821866e-19,
+    '125_30_6x8':2.23216543707321e-19,
+    '125_30_10x10':2.3593876919051205e-19,
+    '125_30_10x14':2.4575416197019804e-19,
+    '200_50_5D':8.381977204480659e-20,
+    '200_50_6x6':8.785661067657833e-20,
+    '200_50_6x8':8.694161123033447e-20,
+    '200_50_8x8':9.081629787707117e-20,
+    '200_50_6x10':8.845903367054842e-20,
+    '200_50_8x10':9.158250082490652e-20,
+    '200_50_10x10':9.537282728074242e-20,
+    '200_50_12x12':9.78160720577491e-20,
+    '200_50_8x15':9.763050777359724e-20,
+    '200_50_10x15':9.85248515694854e-20,
+    '200_50_15x15':1.0323234435310166e-19,
+    '200_50_10x20':9.783992368941467e-20,
+    '200_50_20x20':1.0734048962603096e-19
+}
+
+#cGy/100MU divided by 10,000 = Gy/MU
+kv_outputs_real = {
+    '70_20_2D':193.1/10000,
+    '70_20_3D':203.5/10000,
+    '70_20_4D':208.8/10000,
+    '70_20_5D':214.5/10000,
+    '70_20_6D':218.5/10000,
+    '100_20_2D':183.9/10000,
+    '100_20_3D':195.9/10000,
+    '100_20_4D':203.6/10000,
+    '100_20_5D':208.5/10000,
+    '100_20_6D':212.0/10000,
+    '125_20_2D':174.1/10000,
+    '125_20_3D':186.4/10000,
+    '125_20_4D':195.6/10000,
+    '125_20_5D':202.0/10000,
+    '125_20_6D':208.6/10000,
+    '70_30_8D':99.1/10000,
+    '70_30_10D':100.0/10000,
+    '70_30_14D':102.6/10000,
+    '70_30_6x6':97.2/10000,
+    '70_30_6x8':98.4/10000,
+    '70_30_10x10':101.2/10000,
+    '70_30_10x14':101.4/10000,
+    '100_30_8D':99.1/10000,
+    '100_30_10D':100.0/10000,
+    '100_30_14D':104.9/10000,
+    '100_30_6x6':97.1/10000,
+    '100_30_6x8':98.3/10000,
+    '100_30_10x10':102.3/10000,
+    '100_30_10x14':103.2/10000,
+    '125_30_8D':97.1/10000,
+    '125_30_10D':100.0/10000,
+    '125_30_14D':105.4/10000,
+    '125_30_6x6':94.9/10000,
+    '125_30_6x8':95.9/10000,
+    '125_30_10x10':102.2/10000,
+    '125_30_10x14':103.4/10000,
+    '200_50_5D':85.9/10000,
+    '200_50_6x6':91.7/10000,
+    '200_50_6x8':94.9/10000,
+    '200_50_8x8':97.4/10000,
+    '200_50_6x10':95.5/10000,
+    '200_50_8x10':99.7/10000,
+    '200_50_10x10':100.0/10000,
+    '200_50_12x12':106.0/10000,
+    '200_50_8x15':102.1/10000,
+    '200_50_10x15':106.2/10000,
+    '200_50_15x15':110.1/10000,
+    '200_50_10x20':107.5/10000,
+    '200_50_20x20':113.2/10000,
+}
+
+
+# ## Application
+
+# In[14]:
+
+
 colors = {
-    'background':'#1c1e22',
+    'background':'#1c1e22', #'#272b30', #'#2C2C2C',
     'text': '#FF8000',
     'borders': '#FF8000',
     'purple':'#6600CC'
@@ -867,6 +944,9 @@ tab_selected_style = {
     'color': colors['text'],
     'padding': '0',
 }
+
+
+# In[15]:
 
 
 def load_dicom_files(path):
@@ -921,6 +1001,10 @@ def load_dicom_files(path):
         return slices, message
     else:
         return False, None
+
+
+# In[16]:
+
 
 def get_xy_coordinates(axial_slice):
     '''
@@ -1036,6 +1120,9 @@ def get_xy_coordinates(axial_slice):
     return x_coordinates, y_coordinates
 
 
+# In[17]:
+
+
 class structure:
     
     def __init__(self, number, name, color, total_volume, dose_cube, truncated_volume, cube):
@@ -1048,12 +1135,29 @@ class structure:
         self.cube = cube
 
 
+# In[18]:
+
+
 def calculate_volume(cube):#, xs, ys, zs):
     dummy_cube = np.ones((cube.shape[0], cube.shape[1], cube.shape[2]))
     
     dummy_cube = dummy_cube*SCAN.dose_voxel_volume
+    
+    #for i,x in enumerate(xs[:-1]):
+    #    for j,y in enumerate(ys[:-1]):
+    #        for k,z in enumerate(zs[:-1]):
+    #            xsize = xs[i+1] - xs[i]
+    #            ysize = ys[j+1] - ys[j]
+    #            zsize = zs[k+1] - zs[k]
+    #            volume = xsize*ysize*zsize
+    #            
+    #            #Convert from mm3 to cm3
+    #            dummy_cube[k,j,i] = volume/1000
                 
     return dummy_cube
+
+
+# In[19]:
 
 
 class scan:
@@ -1066,7 +1170,7 @@ class scan:
         
         self.phantom_created = False
         self.progress = 0
-        self.stage = 1
+        self.stage = 1 #1=imported, 2=structures added, 3=HU updated, 4=accepted for ROI, 5=ROI cropped/accepted
         
         #Raw files
         self.slices = slices
@@ -1116,7 +1220,7 @@ class scan:
         #Extracting 3D pixel array
         image = np.stack([s.pixel_array for s in self.slices])
         image = image.astype(np.int16)
-        image[image == -2000] = 0
+        #image[image == -2000] = 0
         
         self.intercept = self.slices[0].RescaleIntercept
         self.slope = self.slices[0].RescaleSlope
@@ -1150,6 +1254,9 @@ class scan:
         
         self.dose_voxel_volume = self.fine_x_step * self.fine_y_step * self.z_step
         #self.dose_volume_cube = np.ones((self.HFS_cube.shape[0], self.HFS_cube.shape[1], self.HFS_cube.shape[2])) * voxel_volume
+
+
+# In[20]:
 
 
 def contour_structures(selected_structures, slider1,slider2,slider3):
@@ -1219,6 +1326,10 @@ def contour_structures(selected_structures, slider1,slider2,slider3):
             
     return contour_plots_A, contour_plots_S, contour_plots_C, 
 
+
+# In[21]:
+
+
 def calc_dvh(structure_id, prescribed_dose, dose_cube):
     print('Structure: ', SCAN.structures[structure_id].name )
     print('Total volume: ',round(SCAN.structures[structure_id].total_volume,2))
@@ -1257,6 +1368,65 @@ def calc_dvh(structure_id, prescribed_dose, dose_cube):
     return 
 
 
+# In[22]:
+
+#This was used with adaptive dose grid--- no longer used I think
+#def calc_dvh_irregular(structure_id,prescribed_dose, dose_cube):
+    #print('Structure: ', SCAN.structures[structure_id].name )
+    #print('Total volume: ',round(SCAN.structures[structure_id].total_volume,2))
+    #print('Truncated volume: ', round(SCAN.structures[structure_id].truncated_volume,2))
+
+    #list1 = list(dose_cube[SCAN.structures[structure_id].dose_cube==1])
+    #list2 = list(SCAN.dose_volume_cube[SCAN.structures[structure_id].dose_cube==1])
+
+    #sorted_dose, sorted_volumes = zip(*sorted(zip(list1, list2)))
+    
+    #sorted_dose = np.array(sorted_dose)
+    #sorted_volumes = np.array(sorted_volumes)
+    
+    #weighted_doses = sorted_dose * (sorted_volumes/min(sorted_volumes))
+    
+    #mean_dose = sum(weighted_doses)/len(weighted_doses)
+
+    #fine_dose_bins = np.arange(0,prescribed_dose*1.1,0.1)
+    #coarse_dose_bins = np.arange(prescribed_dose*1.1,sorted_dose[-1],1)
+    
+    #dose_bin_values = np.append(fine_dose_bins,coarse_dose_bins)
+    
+    #def calc_dose_bin(dose_bin_value1, dose_bin_value2):
+        #Get indices of dose values within a bin
+    #    indices_of_doses_in_bin = np.where(np.logical_and(sorted_dose>=dose_bin_value1, sorted_dose<=dose_bin_value2))
+
+        #Get volume values of indices obtained above
+    #    vs = [sorted_volumes[index] for index in indices_of_doses_in_bin[0]]
+
+        #Sum volumes and append to Vs
+    #    total_volume = sum(vs)
+
+    #    return total_volume
+        
+        
+    #Ds = dose_bin_values[1:]
+    #Vs = list(map(lambda a: calc_dose_bin(dose_bin_values[a],dose_bin_values[a+1]), range(len(dose_bin_values[:-1]))))
+        
+    #cumulative_volumes = list(map(lambda a: (sum(Vs[a:])) ,range(len(Ds))))
+
+    #abs_volumes = list(map(lambda a: (sum(Vs[a:])/sum(Vs))*100 ,range(len(Ds))))
+        
+    #SCAN.structures[structure_id].dose_bins = Ds
+    #SCAN.structures[structure_id].volumes = abs_volumes
+    #SCAN.structures[structure_id].cumulative_volume = cumulative_volumes
+    #SCAN.structures[structure_id].dmax = max(sorted_dose)
+    #SCAN.structures[structure_id].dmin = min(sorted_dose)
+    #SCAN.structures[structure_id].dmean = mean_dose
+
+    #plt.plot(Ds, cumulative_volume, label=SCAN.structures[structure_id].name)
+    #return 
+
+
+# In[23]:
+
+
 def colour_rows(d):
     '''
     Used to apply a style to rows of a table, namely the colour-coding.
@@ -1285,6 +1455,9 @@ def colour_rows(d):
         c_style.append({'if': {'row_index':i,'column_id': 'Structure'}, 'backgroundColor': colour})
 
     return c_style
+
+
+# In[24]:
 
 
 def gen_dicom_dose_file(dose_array, res_x, res_y):
@@ -1373,6 +1546,10 @@ def gen_dicom_dose_file(dose_array, res_x, res_y):
     
     return name + '.dcm'
 
+
+# In[25]:
+
+
 def generate_dvh_table():
     dvh_table_dict = {
         'Structure':[i.name for i in SCAN.structures],
@@ -1422,11 +1599,12 @@ def generate_dvh_table():
             )
     return table
 
-#=====================================================================================
-#======================================APPLICATION====================================
-#=====================================================================================
 
-app = dash.Dash(__name__,)
+# In[26]:
+
+
+#app = dash.Dash(__name__, assets_folder=resource_path('assets'))#, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])#, external_stylesheets=[dbc.themes.BOOTSTRAP])
 
 app.index_string = '''
 <!DOCTYPE html>
@@ -1451,7 +1629,6 @@ app.index_string = '''
 app.config.suppress_callback_exceptions = True
 
 app.title = 'OrthoDose'
-app._favicon = ('favicon_d.ico')
 
 SCAN = 1
 del SCAN
@@ -1472,45 +1649,56 @@ app.layout = html.Div(
            'borderRight': '0.3vw solid #FF8000',
            'height':'100vh',
           },
-
             children=[
             html.H1('Disclaimer',style={
                                 'height':'5%',
                                 'textAlign': 'center',
                                 'font-family': 'Arial, Helvetica, sans-serif',
+                                "text-decoration": "underline",
+                                #'paddingBottom': '1%',
+                                'marginTop': '10vh',
+                                #'marginBottom': '0.7vh',
                                 'font-size':'5vh',
-                                'letter-spacing':'0.2vw',
+                                #'background-image': 'linear-gradient(#f79800,#EF3405)',#'linear-gradient(#1c1e22, #000000)'
+                                #'background': '-webkit-linear-gradient(#f79800,#EF3405)',
+                                #'background-clip': 'text',
+                                #'-webkit-text-fill-color': '-webkit-linear-gradient(#f79800,#EF3405)',#'transparent',
+                                #'color':'linear-gradient(#f79800,#EF3405)',#'transparent',
+                                'letter-spacing':'0.1vw',
                                 'font-weight':'bold',
                                 'background-image': '-webkit-linear-gradient(#f79800,#EF3405)',
                                 '-webkit-background-clip': 'text',
                                 '-webkit-text-fill-color': 'transparent',
                             }),
-            html.P('''By clicking \'I ACKNOWLEDGE\', you acknowledge and agree that this application is not CE marked and is not 
-                    a certified medical device. Hence this software should not be used to make clinical decisions.
-                    It is intended to be used solely for education and guidance purposes.
-                    \n
-                    \n
-                    The application is provided 'as is' without warranty of any kind. In no event shall the author 
-                    be liable for any claim, damages, harm or other liability, arising from, out of or in connection with
-                    the application or the use or other dealings in the application.                     
-                    
-                      ''', style={'marginTop':'3vh','paddingLeft':'20vw','paddingRight':'20vw','color':'white', 'font-size':'x-large'}),
-            html.Button('I acknowledge', id='acknowledge-button', n_clicks=0,style={'marginLeft':'20vw','marginTop':'3vh'})
+            html.H5('This application is designed to display DOSXYZnrc calculated dose distributions on CT images.', 
+                    style={'color':'white', 'display':'flex', 'justify-content':'center'}
+                    ),
+            html.H5('Additional functionality includes: dose normalization, BED and EQD2 calculations.', 
+                    style={'color':'white', 'display':'flex', 'justify-content':'center'}
+                    ),
+            html.H5('Resultant dose distributions should not be used to make any clinical decisions.', 
+                    style={'color':'white', 'display':'flex', 'justify-content':'center'}
+                    ),
+            html.H5('They should only be used for educational purposes.', 
+                    style={'color':'white', 'display':'flex', 'justify-content':'center'}
+                    ),
+            html.Div(html.Button('I acknowledge', id='acknowledge-button', n_clicks=0,), style={'display':'flex', 'justify-content':'center', 'marginTop': '5vh'})
             ]
-        ),
-
-
+        ), 
+#By clicking \'OK\', you acknowledge and agree that this software is not a certified medical device and should not be used to make clinical decisions.
+#It is intended to be used solely for education and guidance purposes.
         html.Div(
-            id = 'main_application',
-            hidden = True,
+            id='main-application',
+            hidden=True,
             style={'backgroundColor': colors['background'],
-                'borderTop': '0.5vh solid #FF8000',
-                'borderBottom': '0.5vh solid #FF8000',
-                'borderLeft': '0.3vw solid #FF8000',
-                'borderRight': '0.3vw solid #FF8000',
-                'height':'100vh'
-                },
+           'borderTop': '0.5vh solid #FF8000',
+           'borderBottom': '0.5vh solid #FF8000',
+           'borderLeft': '0.3vw solid #FF8000',
+           'borderRight': '0.3vw solid #FF8000',
+           'height':'100vh'
+          },
             children=[
+        
                 html.Div(
                     style={
                         'height':'6vh',#'5vh',
@@ -1525,7 +1713,7 @@ app.layout = html.Div(
                             style={
                                 'height':'100%',
                                 'textAlign': 'center',
-                                'font-family': 'Arial, Helvetica, sans-serif',
+                                'font-family': 'titlefont',#'Arial, Helvetica, sans-serif',
                                 #'paddingBottom': '1%',
                                 #'marginTop': '0.7vh',
                                 #'marginBottom': '0.7vh',
@@ -1536,7 +1724,7 @@ app.layout = html.Div(
                                 #'-webkit-text-fill-color': '-webkit-linear-gradient(#f79800,#EF3405)',#'transparent',
                                 #'color':'linear-gradient(#f79800,#EF3405)',#'transparent',
                                 'letter-spacing':'0.5vw',
-                                'font-weight':'bold',
+                                #'font-weight':'bold',
                                 'background-image': '-webkit-linear-gradient(#f79800,#EF3405)',
                                 '-webkit-background-clip': 'text',
                                 '-webkit-text-fill-color': 'transparent',
@@ -1633,7 +1821,7 @@ app.layout = html.Div(
                                                             style={
                                                                 'backgroundColor': '#272b30',
                                                                 'height':'100%',
-                                                                'width':'60%',
+                                                                'width':'38%',
                                                                 'display':'inline-block',
                                                                 'vertical-align': 'top',
                                                                 'borderLeft':'0.1vh solid #FF8000'                                                        
@@ -2087,7 +2275,226 @@ app.layout = html.Div(
                                                             ]
                                                         ),
                                                         
-                                                        
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': '#272b30',
+                                                                'height':'100%',
+                                                                'width':'22%',
+                                                                'display':'inline-block',
+                                                                'vertical-align': 'top',
+                                                                'borderLeft':'0.1vh solid #FF8000'
+                                                            },
+                                                            children=[
+                                                                html.H3(
+                                                                    children='Dose Tools',
+                                                                    style={
+                                                                        'textAlign': 'center',
+                                                                        'color': colors['text'],
+                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                        'padding': '0',
+                                                                        'marginTop': '0.5vh',
+                                                                        'marginBottom': '0%',
+                                                                        'paddingBottom':'0.5vh',
+                                                                        'borderBottom':'0.1vh solid #FF8000'
+                                                                    }
+                                                                ),
+
+                                                                html.Div(
+                                                                    style={
+                                                                    'backgroundColor': '#272b30',
+                                                                        'height':'23%',
+                                                                        'width':'100%',
+                                                                        'display':'inline-block',
+                                                                        'vertical-align': 'middle'
+                                                                    },
+                                                                    children=[
+                                                                        html.H5(
+                                                                            children='Biological:',
+                                                                            style={
+                                                                                'textAlign': 'left',
+                                                                                'color': colors['text'],
+                                                                                'font-family': 'Arial, Helvetica, sans-serif',
+                                                                                'padding': '0',
+                                                                                'display':'inline-block',
+                                                                                'width':'25%',
+                                                                                'marginLeft':'5%',
+                                                                                'marginRight':'1%',
+                                                                                'vertical-align':'center'
+                                                                                #'marginTop':'3vh'
+                                                                            }
+                                                                        ),
+
+                                                                        dcc.RadioItems(
+                                                                            id='bio_dose',
+                                                                            options=[
+                                                                                {'label': 'Physical', 'value': 'physical'},
+                                                                                {'label': 'BED', 'value': 'bed'},
+                                                                                {'label': 'EQD2', 'value': 'eqd2'},                                                                        
+                                                                            ],
+                                                                            value='physical',
+                                                                            labelStyle={'display':'inline-block',
+                                                                                    'font-size':'1vw',
+                                                                                    'color':'white',
+                                                                                    'margin-left': '0.1vw',
+                                                                                    'margin-right': '0.1vw',},
+                                                                            inputStyle={'width':'1.5vw',
+                                                                                    'height':'1.5vh',
+                                                                                    'margin-left': '0.1vw',
+                                                                                    'margin-right': '0vw'},
+                                                                            style={'width':'69%',
+                                                                                    'display':'inline-block',
+                                                                                    'marginBottom':'0.1vh'}
+                                                                        ),
+                                                                    ]
+                                                                ),
+
+                                                                html.Div(
+                                                                    style={
+                                                                    'backgroundColor': '#272b30',
+                                                                        'height':'23%',
+                                                                        'width':'100%',
+                                                                        'display':'inline-block',
+                                                                        'vertical-align': 'middle',
+                                                                    },
+                                                                    children=[
+                                                                        html.H5(
+                                                                            children='# Frac:',
+                                                                            style={
+                                                                                'textAlign': 'left',
+                                                                                'color': colors['text'],
+                                                                                'font-family': 'Arial, Helvetica, sans-serif',
+                                                                                'padding': '0',
+                                                                                'display':'inline-block',
+                                                                                'width':'25%',
+                                                                                'marginLeft':'5%',
+                                                                                'marginRight':'1%',
+                                                                                'vertical-align':'center'
+                                                                                #'marginTop':'3vh'
+                                                                            }
+                                                                        ),
+
+                                                                        dcc.Input(
+                                                                            id='num_frac',
+                                                                            type='numeric',
+                                                                            placeholder='#',
+                                                                            value=10,
+                                                                            debounce=True,
+                                                                            inputMode='numeric',
+                                                                            style={
+                                                                                'display':'inline-block',
+                                                                                'width': '43%',
+                                                                                'height':'70%',
+                                                                                'marginRight':'5%',
+                                                                                #'height': '-webkit-fill-available',
+                                                                                'vertical-align':'center'
+                                                                            }
+                                                                        ),
+                                                                    ]
+                                                                ),
+
+                                                                html.Div(
+                                                                    style={
+                                                                    'backgroundColor': '#272b30',
+                                                                        'height':'23%',
+                                                                        'width':'100%',
+                                                                        'display':'inline-block',
+                                                                        'vertical-align': 'middle',
+                                                                        'paddingTop':'0.5vh'
+                                                                    },
+                                                                    children=[
+                                                                        html.H5(
+                                                                            children='RBE:',
+                                                                            style={
+                                                                                'textAlign': 'left',
+                                                                                'color': colors['text'],
+                                                                                'font-family': 'Arial, Helvetica, sans-serif',
+                                                                                'padding': '0',
+                                                                                'display':'inline-block',
+                                                                                'width':'25%',
+                                                                                'marginLeft':'5%',
+                                                                                'marginRight':'1%',
+                                                                                'vertical-align':'center'
+                                                                                #'marginTop':'3vh'
+                                                                            }
+                                                                        ),
+
+                                                                        dcc.RadioItems(
+                                                                            id='rbe_dose',
+                                                                            options=[
+                                                                                {'label': 'None', 'value': 'none'},
+                                                                                {'label': '1.4 RBE', 'value': 'rbe'},                                                                        
+                                                                            ],
+                                                                            value='none',
+                                                                            labelStyle={'display':'inline-block',
+                                                                                    'font-size':'1vw',
+                                                                                    'color':'white',
+                                                                                    'margin-left': '0.1vw',
+                                                                                    'margin-right': '0.1vw',},
+                                                                            inputStyle={'width':'1.5vw',
+                                                                                    'height':'1.5vh',
+                                                                                    'margin-left': '0.1vw',
+                                                                                    'margin-right': '0vw'},
+                                                                            style={'width':'69%',
+                                                                                    'display':'inline-block',
+                                                                                    'marginBottom':'0.1vh'}
+                                                                        ),
+                                                                    ]
+                                                                ),
+
+                                                                
+                                                                
+                                                                
+                                                                # html.Div(
+                                                                #     style={
+                                                                #     'backgroundColor': '#272b30',
+                                                                #         'height':'23%',
+                                                                #         'width':'100%',
+                                                                #         'display':'inline-block',
+                                                                #         'vertical-align': 'middle',
+                                                                #         'paddingTop':'1vh'
+                                                                #     },
+                                                                #     children=[
+                                                                #         html.H4(
+                                                                #             children='Tissues:',
+                                                                #             style={
+                                                                #                 'textAlign': 'left',
+                                                                #                 'color': colors['text'],
+                                                                #                 'font-family': 'Arial, Helvetica, sans-serif',
+                                                                #                 'padding': '0',
+                                                                #                 'display':'inline-block',
+                                                                #                 'width':'25%',
+                                                                #                 'marginLeft':'5%',
+                                                                #                 'marginRight':'1%',
+                                                                #                 'vertical-align':'center',
+                                                                #                 'marginTop':'0vh',
+                                                                #                 #'marginTop':'3vh'
+                                                                #             }
+                                                                #         ),
+
+                                                                #         dcc.Dropdown(
+                                                                #             id='tissue_dropdown',
+                                                                #             options=[
+                                                                #                 {'label': 'Head & Neck', 'value': 'HN'},
+                                                                #                 {'label': 'Torso', 'value': 'T'},
+                                                                #                 {'label': 'Extremities', 'value': 'E'},
+                                                                #             ],
+                                                                #             value='HN',
+                                                                #             style={
+                                                                #                 'display':'inline-block',
+                                                                #                 'width': '-webkit-fill-available',
+                                                                #                 'height': '4vh',
+                                                                #                 'vertical-align':'top',
+                                                                #                 'marginTop':'0vh',
+                                                                #                 'marginLeft':'1%',
+                                                                #                 'marginRight':'1%',
+                                                                #                 'width':'67%'
+                                                                #             }
+                                                                #         ),
+                                                                #     ]
+                                                                # ),
+                                                                
+                                                            ]
+                                                        ),
                                                         
                                                         html.Div(
                                                             style={
@@ -2578,6 +2985,44 @@ app.layout = html.Div(
                                         ),
                                     ]
                                 ),
+                                
+                                dcc.Tab(
+                                    label='Dose Summation',
+                                    style=tab_style,
+                                    selected_style=tab_selected_style,
+                                    children=[
+                                        html.Div(
+                                            children=[
+                                                html.Div(
+                                                    children=[
+                                                    ],
+                                                    style={
+                                                        'backgroundColor': 'red',
+                                                        'height':'100%',
+                                                        'width':'70%',
+                                                        'display':'inline-block'
+                                                    }
+                                                ),
+                                                html.Div(
+                                                    children=[
+                                                    ],
+                                                    style={
+                                                        'backgroundColor': 'blue',
+                                                        'height':'100%',
+                                                        'width':'30%',
+                                                        'display':'inline-block'
+                                                    }
+                                                ),
+                                            ],
+                                            style={
+                                                'backgroundColor': 'green',
+                                                'height':'83vh',
+                                                'marginLeft':'1.5vh',
+                                                'marginRight':'1.5vh'
+                                            }
+                                        ),
+                                    ]
+                                ),
                             ]
                         )   
                     ]
@@ -2586,17 +3031,17 @@ app.layout = html.Div(
         )
     ]
 )
+
 #################################################################################
 ################################ CALLBACKS ######################################
 #################################################################################    
 #=========================PLOTTING CT====================================
-#Disclaimer notice
-@app.callback(
-    [Output('disclaimer', 'hidden'), Output('main_application', 'hidden')],
-    Input('acknowledge-button', 'n_clicks'))
-def disclaim(n_clicks):
+@app.callback([Output('main-application', 'hidden'),
+            Output('disclaimer', 'hidden')],
+              [Input('acknowledge-button', 'n_clicks')])
+def display_main_content(n_clicks):
     if n_clicks > 0:
-        return [True, False]
+        return [False, True]
     else:
         raise PreventUpdate
 
@@ -2684,7 +3129,7 @@ def upload_DICOM(click_ct, click_dose, click_struct, click_dvh, d_100):
                 CStep, CSmin, CSmax, CSvalue, CSmarks = update_slice_slider('C')
                 
                 try:
-                    dose_file_path = gui_select_file('Select .3ddose file')
+                    dose_file_path = easygui.fileopenbox(title='Select .3ddose file', filetypes='.3ddose') #gui_select_file('Select .3ddose file')
                     SCAN.dose_cube, SCAN.xdose, SCAN.ydose, SCAN.zdose, SCAN.error_cube = create_DOSE_cube(dose_file_path) #SCAN.error_cube is actual percentage error values e.g. 1%
                     
                     print('Calculating dose voxel volumes...')
@@ -2773,33 +3218,54 @@ def upload_DICOM(click_ct, click_dose, click_struct, click_dvh, d_100):
                                     dummy_cube_dose = np.zeros((SCAN.dose_cube.shape[0],SCAN.dose_cube.shape[1],SCAN.dose_cube.shape[2]),dtype=np.int8)
 
                                     try:
+                                        current_z = 9999
                                         for seq in m.ContourSequence:
                                             xs = seq.ContourData[::3]
                                             ys = seq.ContourData[1::3]
                                             zs = seq.ContourData[2::3]                                         
 
-                                            #Approach 1
-                                            xs_idx = list(map(lambda a: (np.abs(SCAN.HFS_xs - a)).argmin(), xs))
-                                            ys_idx = list(map(lambda a: (np.abs(SCAN.HFS_ys - a)).argmin(), ys))
-                                            zs_idx = list(map(lambda a: (np.abs(SCAN.HFS_zs - a)).argmin(), zs))
+                                            if zs[0] != current_z:
+                                                current_z = zs[0]
+                                            
+                                                #Approach 1
+                                                xs_idx = list(map(lambda a: (np.abs(SCAN.HFS_xs - a)).argmin(), xs))
+                                                ys_idx = list(map(lambda a: (np.abs(SCAN.HFS_ys - a)).argmin(), ys))
+                                                zs_idx = list(map(lambda a: (np.abs(SCAN.HFS_zs - a)).argmin(), zs))
 
-                                            xs_dose_idx = list(map(lambda a: (np.abs(SCAN.xdose[:-1] - a)).argmin(), xs))
-                                            ys_dose_idx = list(map(lambda a: (np.abs(SCAN.ydose[:-1] - a)).argmin(), ys))
-                                            zs_dose_idx = list(map(lambda a: (np.abs(SCAN.zdose[:-1] - a)).argmin(), zs))
+                                                xs_dose_idx = list(map(lambda a: (np.abs(SCAN.xdose[:-1] - a)).argmin(), xs))
+                                                ys_dose_idx = list(map(lambda a: (np.abs(SCAN.ydose[:-1] - a)).argmin(), ys))
+                                                zs_dose_idx = list(map(lambda a: (np.abs(SCAN.zdose[:-1] - a)).argmin(), zs))
 
-                                            #Can use polygon_perimeter to just draw contour -> add (,shape=dummy_cube[zs_idx[0]].shape,clip=True)
-                                            xx, yy = polygon(xs_idx, ys_idx)
-                                            dummy_cube[zs_idx[0],yy,xx] = 1
+                                                #Can use polygon_perimeter to just draw contour -> add (,shape=dummy_cube[zs_idx[0]].shape,clip=True)
+                                                xx, yy = polygon(xs_idx, ys_idx)
+                                                dummy_cube[zs_idx[0],yy,xx] = 1
 
-                                            xx_dose, yy_dose = polygon(xs_dose_idx, ys_dose_idx)
-                                            dummy_cube_dose[zs_dose_idx[0],yy_dose,xx_dose] = 1
+                                                xx_dose, yy_dose = polygon(xs_dose_idx, ys_dose_idx)
+                                                dummy_cube_dose[zs_dose_idx[0],yy_dose,xx_dose] = 1
 
-                                        #dummy_cube[dummy_cube==0] = 
-                                        #dummy_cube_dose[dummy_cube_dose==0] = 
+                                            else:#If a structure is a doughnut shape the first polygon is the outer region and second polygon is the inner region
+                                                xs_idx = list(map(lambda a: (np.abs(SCAN.HFS_xs - a)).argmin(), xs))
+                                                ys_idx = list(map(lambda a: (np.abs(SCAN.HFS_ys - a)).argmin(), ys))
+                                                zs_idx = list(map(lambda a: (np.abs(SCAN.HFS_zs - a)).argmin(), zs))
+
+                                                xs_dose_idx = list(map(lambda a: (np.abs(SCAN.xdose[:-1] - a)).argmin(), xs))
+                                                ys_dose_idx = list(map(lambda a: (np.abs(SCAN.ydose[:-1] - a)).argmin(), ys))
+                                                zs_dose_idx = list(map(lambda a: (np.abs(SCAN.zdose[:-1] - a)).argmin(), zs))
+
+                                                #Can use polygon_perimeter to just draw contour -> add (,shape=dummy_cube[zs_idx[0]].shape,clip=True)
+                                                xx, yy = polygon(xs_idx, ys_idx)
+                                                xx_dose, yy_dose = polygon(xs_dose_idx, ys_dose_idx)
+
+                                                if np.any(dummy_cube[zs_idx[0],yy,xx]==1):
+                                                    #Some voxels of this second layer contain 1s => this is most likely a donut
+                                                    dummy_cube[zs_idx[0],yy,xx] = 0                                                
+                                                    dummy_cube_dose[zs_dose_idx[0],yy_dose,xx_dose] = 0
+                                                else:
+                                                    #None of the voxels in the second layer contain 1s => this must be a second separate island of the contour on the same slice
+                                                    dummy_cube[zs_idx[0],yy,xx] = 1                                                
+                                                    dummy_cube_dose[zs_dose_idx[0],yy_dose,xx_dose] = 1               
+
                                         print('Structure volume created!')
-                                        
-                                        #dummy_cube = (dummy_cube==1)
-                                        #dummy_cube_dose = (dummy_cube_dose==1)
 
                                         total_volume = sum(SCAN.volume_cube[dummy_cube==1])
                                         truncated_volume = sum(SCAN.dose_volume_cube[dummy_cube_dose==1])
@@ -2930,8 +3396,11 @@ def upload_DICOM(click_ct, click_dose, click_struct, click_dvh, d_100):
     State('znorm','value'),
     State('norm_dose','value'),
     State('applicator_dropdown', 'value'),
-    State('prescribed_mu', 'value'),])
-def plot_graph_CT(hu_window, slider1, slider2, slider3, update_click, selected_structures, min_dose, max_dose, norm_to, xn, yn, zn, nd, applicator_dropdown, prescribed_mu):  
+    State('prescribed_mu', 'value'),
+    State('rbe_dose', 'value'),
+    State('bio_dose', 'value'),
+    State('num_frac', 'value'),])
+def plot_graph_CT(hu_window, slider1, slider2, slider3, update_click, selected_structures, min_dose, max_dose, norm_to, xn, yn, zn, nd, applicator_dropdown, prescribed_mu, rbe_dose, bio_dose, num_frac):  
     
     changed_id = [p['prop_id'] for p in dash.callback_context.triggered][0]
     message = ''
@@ -3009,6 +3478,7 @@ def plot_graph_CT(hu_window, slider1, slider2, slider3, update_click, selected_s
                     #Scale array by given dose
                     scale_factor = float(nd)/SCAN.dose_cube[z_idx,y_idx,x_idx]
                     print('Dose is rescaled to the prescription dose')
+
                     SCAN.updated_dose = np.copy(SCAN.dose_cube) * scale_factor
                     #SCAN.prescribed_dose = float(prescribed_dose)
 
@@ -3022,16 +3492,28 @@ def plot_graph_CT(hu_window, slider1, slider2, slider3, update_click, selected_s
         else: #normalizing to output (applicator and mu)
             if applicator_dropdown != None and prescribed_mu != None:
                 try:
-                    #print(applicator_dropdown)
-                    #print(kv_outputs_real[applicator_dropdown])
-                    #print(kv_outputs_mc[applicator_dropdown])
                     #Scale array by given dose
                     mc_to_real = float(kv_outputs_real[applicator_dropdown]/kv_outputs_mc[applicator_dropdown])
                     mc_to_real_mu = mc_to_real * int(prescribed_mu)
 
                     print('Dose is rescaled based on selected applicator and MU')
-                    SCAN.updated_dose = np.copy(SCAN.dose_cube) * mc_to_real_mu
-                    #SCAN.prescribed_dose = float(prescribed_mu)
+
+                    if rbe_dose == 'rbe':
+                        mc_to_real_mu *= 1.4
+                        print('RBE factor of 1.4 taken into account')
+
+                    if bio_dose == 'bed':
+                        pre_bed_dose = np.copy(SCAN.dose_cube) * mc_to_real_mu
+                        SCAN.updated_dose = pre_bed_dose * (1+ ((pre_bed_dose/int(num_frac))/3))
+                        print('Displayed dose is BED')
+
+                    elif bio_dose == 'eqd2':
+                        pre_eqd2_dose = np.copy(SCAN.dose_cube) * mc_to_real_mu
+                        SCAN.updated_dose = pre_eqd2_dose * (((pre_eqd2_dose/int(num_frac))+3)/(2+3))
+                        print('Displayed dose is EQD2')
+
+                    else:
+                        SCAN.updated_dose = np.copy(SCAN.dose_cube) * mc_to_real_mu
 
                 except:
                     message = 'Dose not updated! Please select an applicator and enter the MU!'
@@ -3148,18 +3630,6 @@ def plot_graph_CT(hu_window, slider1, slider2, slider3, update_click, selected_s
             disp = False
             
         return PA,PS,PC,message, disp     
-
-
-@app.callback([Output('tissue_dropdown', 'disabled'),
-            Output('tissue_dropdown', 'value')],
-                [Input('dose_to', 'value')],)
-def disable_tissues (d_to):
-
-    if d_to == 'dm':
-        return [True,None]
-    else:
-        return [False, 'hn']
-
 
 
 @app.callback( [Output('norm_container', 'style'),

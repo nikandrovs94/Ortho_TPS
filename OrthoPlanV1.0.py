@@ -1,13 +1,21 @@
-#=====================================================================================
-#=====================================IMPORTS=========================================
-#=====================================================================================
-#Dash modules
+#!/usr/bin/env python
+# coding: utf-8
+
+# # kV Treatment Planning System
+
+# ## Importing libraries
+
+# In[1]:
+
+
+#Dash application modules
 import dash
 from dash import dash_table
 from dash.dependencies import Input, Output, State
 from dash import dcc
 from dash import html
 from dash.exceptions import PreventUpdate
+
 import dash_bootstrap_components as dbc
 
 #Plotly modules
@@ -31,20 +39,51 @@ from skimage.draw import polygon
 #Extra modules
 import pandas as pd
 import pydicom as dcm
+
 import threading
 
-#=====================================================================================
-#======================CONSTANTS - TO BE CHANGED BY BT USERS==========================
-#=====================================================================================
+#Constants
+max_DOSXYZ_voxels = 48200000 #dosxyznrc doesnt compile with total voxels greater than that
 
-#DOSXYZnrc doesn't compile with total number of voxels greater than this value
-#This value is displayed in the Region of Interest tab of OrthoPlan
-max_DOSXYZ_voxels = 48200000 
+simulation_histories = 20000000 #50m PHSP files will be recycled to match >=50m histories
 
-#PHSP files will be recycled appropriately to match this number of histories
-simulation_histories = 20000000 
+#Generating array of ascii characters for phantom material assignment
+#nums = [i for i in range(0,95)]
+#chars = [chr((i+16) % 95 +32) for i in nums] #Used for dosxyz code with ASCII encoding for materials
+chars = ['1','2','3','4','5','6','7','8','9',
+        'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z',
+         'a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z'         ] #Used for dosxyz code with 62 egs_brachy encoding
 
-#Number of histories stored in phase space files for each energy applicator combination
+low_energy_applicators = [
+    {'label': '2cm diameter, 20cm SSD', 'value': 'A'},
+    {'label': '3cm diameter, 20cm SSD', 'value': 'B'},
+    {'label': '4cm diameter, 20cm SSD', 'value': 'C'},
+    {'label': '5cm diameter, 20cm SSD', 'value': 'D'},
+    {'label': '6cm diameter, 20cm SSD', 'value': 'E'},
+    {'label': '8cm diameter, 30cm SSD', 'value': 'F'},
+    {'label': '10cm diameter, 30cm SSD', 'value': 'G'},
+    {'label': '14cm diameter, 30cm SSD', 'value': 'H'},
+    {'label': '6x6cm, 30cm SSD', 'value': 'I'},
+    {'label': '6x8cm, 30cm SSD', 'value': 'J'},
+    {'label': '10x10cm, 30cm SSD', 'value': 'K'},
+    {'label': '10x14cm, 30cm SSD', 'value': 'L'},
+]
+high_energy_applicators = [
+    {'label': '5cm diameter, 50cm SSD', 'value': 'M'},
+    {'label': '6x6cm, 50cm SSD', 'value': 'N'},
+    {'label': '6x8cm, 50cm SSD', 'value': 'O'},
+    {'label': '8x8cm, 50cm SSD', 'value': 'P'},
+    {'label': '6x10cm, 50cm SSD', 'value': 'Q'},
+    {'label': '8x10cm, 50cm SSD', 'value': 'R'},
+    {'label': '10x10cm, 50cm SSD', 'value': 'S'},
+    {'label': '12x12cm, 50cm SSD', 'value': 'T'},
+    {'label': '8x15cm, 50cm SSD', 'value': 'U'},
+    {'label': '10x15cm, 50cm SSD', 'value': 'V'},
+    {'label': '15x15cm, 50cm SSD', 'value': 'W'},
+    {'label': '10x20cm, 50cm SSD', 'value': 'X'},
+    {'label': '20x20cm, 50cm SSD', 'value': 'Y'}
+]
+
 phsp_histories_dict = {
 '100A' : 6249159,
 '100B' : 14033230,
@@ -97,12 +136,48 @@ phsp_histories_dict = {
 '70L' : 65025486
 }
 
+colors = {
+    'background':'#1c1e22', #'#272b30', #'#2C2C2C',
+    'text': '#FF8000',
+    'borders': '#FF8000',
+    'purple':'#6600CC'
+}
+
+tabs_styles = {
+    'height': '5vh',
+    'font-size': '3vh',
+    'fontWeight': 'bold',
+    'marginLeft':'1.5vh',
+    'marginRight':'1.5vh',
+    'marginBottom':'1.5vh',
+    'marginTop':'1.5vh',
+}
+tab_style = {
+    'borderTop': '1px solid white',
+    'borderBottom': '1px solid white',
+    'borderRight': '1px solid white',
+    'borderLeft': '1px solid white',
+    'backgroundColor': '#3a3f44',
+    'color': 'white',
+    'padding': '0',
+}
+
+tab_selected_style = {
+    'borderColor': colors['text'],
+    'borderTop': '3px solid ',    
+    'borderBottom': '3px solid ',
+    'borderRight': '3px solid ',
+    'borderLeft': '3px solid ',
+    'backgroundColor': colors['background'],
+    'color': colors['text'],
+    'padding': '0',
+}
+
 #CT ramp used by SLH
 global HU, Den
-HU = [-1000, -940, -770, -495, -66, -29, -3, 49, 55, 252, 854, 1358, 5980, 8335, 14264]
-Den = [0.001, 0.04, 0.2, 0.5, 0.96, 0.99, 1, 1.06, 1.07, 1.16, 1.53, 1.84, 8.1, 11.29, 19.32]
+HU = [-1000, -940, -770, -495, -66, -29, -3, 49, 55, 252, 854, 1358, 1462, 2748, 5980, 8335, 14264]
+Den = [0.001, 0.04, 0.2, 0.5, 0.96, 0.99, 1, 1.06, 1.07, 1.16, 1.53, 1.84, 1.904, 2.688, 8.1, 11.29, 19.32]
 
-#Default HU value ranges for different tissue presents in Tissue Segmentation tab of OrthoPlan
 PEGS_HN = {'Name':['AIR', 'ADIPOSE', 'MUSCLE', 'CARTILLAGE', 'C4CART', 'C4NOCART', 'CRANIUM', 'MANDIBLE', 'LEAD', 'GOLD'],
             'MinCT':[-1005, -500, 0, 100, 250, 650, 900, 1000, 2000, 8500],
             'MaxCT':[-500, 0, 100, 250, 650, 900, 1000, 2000, 8500, 15000],
@@ -169,105 +244,42 @@ PEGS_CIRS = {'Name':['AIR', 'CIRS_LUNG', 'CIRS_ADIPOSE', 'CIRS_WATER', 'CIRS_MUS
                     ],
             'Number':[0,0,0,0,0,0,0,0]}
 
-
-#Applicator labels
-low_energy_applicators = [
-    {'label': '2cm diameter, 20cm SSD', 'value': 'A'},
-    {'label': '3cm diameter, 20cm SSD', 'value': 'B'},
-    {'label': '4cm diameter, 20cm SSD', 'value': 'C'},
-    {'label': '5cm diameter, 20cm SSD', 'value': 'D'},
-    {'label': '6cm diameter, 20cm SSD', 'value': 'E'},
-    {'label': '8cm diameter, 30cm SSD', 'value': 'F'},
-    {'label': '10cm diameter, 30cm SSD', 'value': 'G'},
-    {'label': '14cm diameter, 30cm SSD', 'value': 'H'},
-    {'label': '6x6cm, 30cm SSD', 'value': 'I'},
-    {'label': '6x8cm, 30cm SSD', 'value': 'J'},
-    {'label': '10x10cm, 30cm SSD', 'value': 'K'},
-    {'label': '10x14cm, 30cm SSD', 'value': 'L'},
-]
-high_energy_applicators = [
-    {'label': '5cm diameter, 50cm SSD', 'value': 'M'},
-    {'label': '6x6cm, 50cm SSD', 'value': 'N'},
-    {'label': '6x8cm, 50cm SSD', 'value': 'O'},
-    {'label': '8x8cm, 50cm SSD', 'value': 'P'},
-    {'label': '6x10cm, 50cm SSD', 'value': 'Q'},
-    {'label': '8x10cm, 50cm SSD', 'value': 'R'},
-    {'label': '10x10cm, 50cm SSD', 'value': 'S'},
-    {'label': '12x12cm, 50cm SSD', 'value': 'T'},
-    {'label': '8x15cm, 50cm SSD', 'value': 'U'},
-    {'label': '10x15cm, 50cm SSD', 'value': 'V'},
-    {'label': '15x15cm, 50cm SSD', 'value': 'W'},
-    {'label': '10x20cm, 50cm SSD', 'value': 'X'},
-    {'label': '20x20cm, 50cm SSD', 'value': 'Y'}
-]
-def generate_original_phsp(field_size):
-    #Creating a PHSP plane
-    if field_size == 'A':
-        original_phsp = genCIRC(2,0)
-    elif field_size == 'B':
-        original_phsp = genCIRC(3,0)
-    elif field_size == 'C':
-        original_phsp = genCIRC(4,0)
-    elif field_size == 'D':
-        original_phsp = genCIRC(5,0)
-    elif field_size == 'E':
-        original_phsp = genCIRC(6,0)
-    elif field_size == 'F':
-        original_phsp = genCIRC(8,0)
-    elif field_size == 'G':
-        original_phsp = genCIRC(10,0)
-    elif field_size == 'H':
-        original_phsp = genCIRC(14,0)
-    elif field_size == 'I':
-        original_phsp = genRECT(6,6,0)
-    elif field_size == 'J':
-        original_phsp = genRECT(8,6,0)
-    elif field_size == 'K':
-        original_phsp = genRECT(10,10,0)
-    elif field_size == 'L':
-        original_phsp = genRECT(14,10,0)
-    elif field_size == 'M':
-        original_phsp = genCIRC(5,0)
-    elif field_size == 'N':
-        original_phsp = genRECT(6,6,0)
-    elif field_size == 'O':
-        original_phsp = genRECT(8,6,0)
-    elif field_size == 'P':
-        original_phsp = genRECT(8,8,0)
-    elif field_size == 'Q':
-        original_phsp = genRECT(10,6,0)
-    elif field_size == 'R':
-        original_phsp = genRECT(10,8,0)
-    elif field_size == 'S':
-        original_phsp = genRECT(10,10,0)
-    elif field_size == 'T':
-        original_phsp = genRECT(12,12,0)
-    elif field_size == 'U':
-        original_phsp = genRECT(15,8,0)
-    elif field_size == 'V':
-        original_phsp = genRECT(15,10,0)
-    elif field_size == 'W':
-        original_phsp = genRECT(15,15,0)
-    elif field_size == 'X':
-        original_phsp = genRECT(20,10,0)
-    elif field_size == 'Y':
-        original_phsp = genRECT(20,20,0)
-
-    return original_phsp
-
-
-#=====================================================================================
-#======================================FUNCTIONS======================================
-#=====================================================================================
+PEGS_MESH = {'Name':['AIR', 'RST', 'HUMOUR', 'GLANDS', 'LYMPH', 'BRAIN', 'CERV_SPONG', 'MUSCLE', 'BLOOD', 'LENS', 'SKIN', 'CARTILAGE', 'CORNEA', 'CRAN_SPONG', 'MAND_SPONG', 'CORTICAL', 'TEETH', 'LEAD', 'GOLD'],
+            'MinCT':[-1005, -100, 0, 20, 24.5, 29, 39, 40.5, 49, 51, 53, 100, 120, 150, 350, 1000, 2500, 8000, 8500],
+            'MaxCT':[-100, 0, 20, 24.5, 29, 39, 40.5, 49, 51, 53, 100, 120, 150, 350, 1000, 2500, 8000, 8500, 15000],
+            'Colour':[
+                        '#bdf2ff',
+                        '#9999FF',
+                        '#ffbf00',
+                        '#083BF9',
+                        '#ff0000',
+                        '#707070',
+                        '#640082',
+                        '#e3ce32',
+                        '#bdf2ff',
+                        '#9999FF',
+                        '#ffbf00',
+                        '#083BF9',
+                        '#ff0000',
+                        '#707070',
+                        '#640082',
+                        '#e3ce32',
+                        '#bdf2ff',
+                        '#9999FF',
+                        '#ffbf00',
+                    ],
+            'Number':[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}
 
 def orientation_label(X, Y, T):
-    '''
-    Used to generate letters indicating CT right/left/ant/post/sup/inf in all 
-    appropriate plots.
-    '''
     L = dict(x=X, y=Y, text=T, showarrow=False, font=dict(family='"Segoe UI",Arial,sans-serif', size=20, color="#ffffff"), bordercolor="#000000", borderwidth=2, borderpad=3, bgcolor="#f25504", opacity=1)
 
     return L
+
+#PEGS = pd.DataFrame(PEGS_HN)
+# ## Browsing/Directories functions
+
+# In[2]:
+
 
 def resource_path(relative_path):
     '''
@@ -282,9 +294,12 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+# In[3]:
+
+
 def gui_select_dir():
     '''
-    Opens a folder browser and returns the path to the selected directory.
+    Opens a browser and returns the path to the selected directory.
     '''
     try:
         pidl, display_name, _ = shell.SHBrowseForFolder()
@@ -318,9 +333,12 @@ def gui_save_file(title, savetype):
 
     return n
 
+# In[4]:
+
+
 def gui_select_file(title,start_dir=None):
     '''
-    Opens a file browser and returns the path to the selected file.
+    Opens a browser and returns the path to the selected file.
     '''
     fd = win32ui.CreateFileDialog(1)
 
@@ -332,6 +350,10 @@ def gui_select_file(title,start_dir=None):
     filepath = fd.GetPathName()
     
     return filepath
+
+
+# In[5]:
+
 
 def createFolder(directory):
     '''
@@ -358,6 +380,9 @@ def createFolder(directory):
         return my_dir
     except OSError:
         print('Error: Creating directory.' + directory)
+
+
+# In[6]:
 
 
 def copy_rename_DICOM(old_path, new_path):
@@ -389,7 +414,10 @@ def copy_rename_DICOM(old_path, new_path):
             pass
 
 
-# CT object generation and functions
+# ## CT object generation and functions
+
+# In[7]:
+
 
 class scan:
     '''
@@ -461,7 +489,7 @@ class scan:
         #Extracting 3D pixel array
         image = np.stack([s.pixel_array for s in self.slices])
         image = image.astype(np.int16)
-        image[image == -2000] = 0
+        #image[image == -2000] = 0
         
         self.intercept = self.slices[0].RescaleIntercept
         self.slope = self.slices[0].RescaleSlope
@@ -566,11 +594,14 @@ class scan:
         return self.final_cube, xvoxboundaries, yvoxboundaries, zvoxboundaries
 
 
+# In[8]:
+
 
 def find_index(array, value):
     index = (np.abs(array - value)).argmin()
     
     return index
+
 
 
 def load_dicom_files(path):
@@ -625,6 +656,9 @@ def load_dicom_files(path):
         return slices, message
     else:
         return False, None
+
+
+# In[10]:
 
 
 def get_xy_coordinates(axial_slice):
@@ -747,6 +781,9 @@ def get_xy_coordinates(axial_slice):
     return x_coordinates, y_coordinates
 
 
+# In[11]:
+
+
 class structure:
     
     def __init__(self, number, name, color, cube, sequence):
@@ -757,7 +794,10 @@ class structure:
         self.sequence = sequence
 
 
-# Plotting functions
+# ## Plotting functions
+
+# In[12]:
+
 
 def PLOT_CT(cube, xs, ys, zs, View, Slice, width, PEGS):
     '''
@@ -998,6 +1038,7 @@ def PLOT_CT(cube, xs, ys, zs, View, Slice, width, PEGS):
                         'zeroline': False, # thick line at x=0
                         'visible': False,  # numbers below
                     },}
+    #figure_main = go.Figure(data_main, layout_main)
 
    
     #-----------------------------SUB1----------------------------------------
@@ -1082,6 +1123,9 @@ def PLOT_CT(cube, xs, ys, zs, View, Slice, width, PEGS):
     return data_main, layout_main, figure_sub1, figure_sub2
 
 
+# In[13]:
+
+
 def plot_ROI(cube,rangex,slicex,rangey,slicey,rangez,slicez,window):
 
     #Create a copy of the CT cube to avoid modifying original
@@ -1103,7 +1147,7 @@ def plot_ROI(cube,rangex,slicex,rangey,slicey,rangez,slicez,window):
     axial_img = CT_cube_copy[axial_slice_idx,:,:]
     saggital_img = CT_cube_copy[:,:,saggital_slice_idx]
     coronal_img = CT_cube_copy[:,coronal_slice_idx,:]
-    
+    PLOT_CT
     #Adjusting window level and width
     HU_min = window[0]
     HU_max = window[1]
@@ -1375,6 +1419,10 @@ def plot_ROI(cube,rangex,slicex,rangey,slicey,rangez,slicez,window):
     ycrop1_coronal = shade(min(cube.HFS_xs), max(cube.HFS_xs), min(cube.HFS_zs), rangez[0], '#CC0000')
     ycrop2_coronal = shade(min(cube.HFS_xs), max(cube.HFS_xs), rangez[1], max(cube.HFS_zs), '#CC0000')
     
+    #highres_axial = hd(hdx[0], hdx[1], hdy[0], hdy[1], '#CC0000')
+    #highres_saggital = hd(hdy[0], hdy[1], hdz[0], hdz[1], '#0000CC')
+    #highres_coronal = hd(hdx[0], hdx[1], hdz[0], hdz[1], '#00CC00')
+    
     
     layout_axial = {'autosize':True,
               'shapes': [saggital_line_on_axial,coronal_line_on_axial,
@@ -1451,6 +1499,9 @@ def plot_ROI(cube,rangex,slicex,rangey,slicey,rangez,slicez,window):
     return saggital_fig, coronal_fig, axial_fig
 
 
+# In[14]:
+
+
 def contour_structures(selected_structures, view, idx):
     
     contour_plots = []
@@ -1513,6 +1564,10 @@ def contour_structures(selected_structures, view, idx):
             
     return contour_plots
 
+
+# In[15]:
+
+
 def update_slice_slider(view):
     #Update Slice slider values
     if view == 'A':
@@ -1561,6 +1616,9 @@ def update_slice_slider(view):
                                         'font-size':'2rem'}} for i in SCAN.HFS_ys[::-1][::35]}
         
     return Sstep, Smin, Smax, Svalue, Smarks 
+
+
+# In[16]:
 
 
 def update_slice_slider_cropped(view):
@@ -1620,6 +1678,9 @@ def update_slice_slider_cropped(view):
     return Sstep, Smin, Smax, Svalue, Smarks 
 
 
+# In[17]:
+
+
 def create_dcc_graph(fig):
     G = dcc.Graph(
         figure=fig,
@@ -1633,6 +1694,9 @@ def create_dcc_graph(fig):
         }
     )
     return G
+
+
+# In[18]:
 
 
 def shade(x0, x1, y0, y1, colour):
@@ -1652,6 +1716,9 @@ def shade(x0, x1, y0, y1, colour):
     return rect
 
 
+# In[19]:
+
+
 def hd(x0, x1, y0, y1, colour):
     '''
     Generates a translucent rectangle to shade in the HD area of CT.
@@ -1668,7 +1735,11 @@ def hd(x0, x1, y0, y1, colour):
     return rect
 
 
-# HU Overwriting Functions
+# ## HU Overwriting Functions
+
+# In[23]:
+
+
 def Overwrite(num, value):
     '''
     This function overwrites pixel values of the CT images that are inside
@@ -1711,10 +1782,15 @@ def Overwrite(num, value):
         name = SCAN.updated_ct_folder_path + '/' + str(slice_i.SOPInstanceUID) + '.dcm'
         slice_i.save_as(name)
         
-    return 
+    return #scan(load_dicom_files(SCAN.updated_ct_folder_path))
 
 
-# CT HU Table Generation and functions
+# ## CT HU Table Generation and functions
+
+
+
+# In[25]:
+
 
 def ramp_up(table):
     '''
@@ -1795,6 +1871,9 @@ def ramp_up(table):
     return CT_ramp_fig
 
 
+# In[26]:
+
+
 def colour_rows(d):
     '''
     Used to apply a style to rows of a table, namely the colour-coding.
@@ -1808,6 +1887,9 @@ def colour_rows(d):
         c_style.append({'if': {'row_index':i}, 'backgroundColor': str(colour)})
 
     return c_style
+
+
+# In[27]:
 
 
 def stretch_CT(table):
@@ -1826,7 +1908,7 @@ def stretch_CT(table):
     
     mat = [i.Name for i in table]
     try:
-        low_bound = [int(i.MinCT) for i in table]
+        low_bound = [float(i.MinCT) for i in table]
     except:
         raise PreventUpdate
     
@@ -1839,9 +1921,9 @@ def stretch_CT(table):
     
     for item in table:
         if item.Name == s_mat[0]:
-            item.MinCT = int(CTL)
+            item.MinCT = float(CTL)
         if item.Name == s_mat[-1]:
-            item.MaxCT = int(CTH)
+            item.MaxCT = float(CTH)
     
     for item in table:
         indx = s_mat.index(item.Name)
@@ -1849,14 +1931,14 @@ def stretch_CT(table):
         item.Number = indx+1
         
         try:
-            item.MaxCT = int(s_low[indx+1])
+            item.MaxCT = float(s_low[indx+1])
         except:
             pass
         
         
     return table
 
-def write_input_file(phantom_file_path, applicator_letter, applicator, x, y, z, theta, phi, col, phsp_file_path):
+def write_phantom_file(phantom_file_path, applicator_letter, applicator, x, y, z, theta, phi, col, phsp_file_path):
 
     if applicator_letter in ['A', 'B', 'C', 'D', 'E']:
         phsp_ssd = 20
@@ -1917,7 +1999,10 @@ def write_input_file(phantom_file_path, applicator_letter, applicator, x, y, z, 
 
     print('Finished writing dosxyznrc input file!')
 
-# 3D Plotting Functions
+# ## 3D Plotting Functions
+
+# In[28]:
+
 
 def make_mesh(image, threshold=-300, step_size=1):
     '''
@@ -2012,6 +2097,9 @@ def make_mesh(image, threshold=-300, step_size=1):
     return fig1
 
 
+# In[29]:
+
+
 def genRECT(length, width, height):
     '''
     Used to generate a rectangular plane representing the PHSP file.
@@ -2027,6 +2115,9 @@ def genRECT(length, width, height):
     return start_plane
 
 
+# In[30]:
+
+
 def genCIRC(diameter, height):
     '''
     Used to generate a circular plane representing the PHSP file.
@@ -2039,6 +2130,9 @@ def genCIRC(diameter, height):
     start_plane = [(d*np.cos(angle), d*np.sin(angle), height) for angle in theta]
     
     return start_plane
+
+
+# In[31]:
 
 
 def move_plane(plane, spin, theta, phi):
@@ -2068,6 +2162,9 @@ def move_plane(plane, spin, theta, phi):
     return phi_plane
 
 
+# In[32]:
+
+
 def EXT_pts(plane):
     '''
     Used to extract x, y, z values from points of the plane.
@@ -2077,6 +2174,9 @@ def EXT_pts(plane):
     z = [point[2] for point in plane]
     
     return x,y,z
+
+
+# In[33]:
 
 
 def rotateSPIN(point,alpha):
@@ -2121,9 +2221,12 @@ def rotatePHI(point,alpha):
     
 
 
-# Phantom Creation
+# ## Phantom Creation
 
-def write_phantom_file(imgs, b_x, b_y, b_z, folder, table):
+# In[34]:
+
+
+def create_phantom(imgs, b_x, b_y, b_z, folder, table):
     '''
     This funtion creates a text document with .egsphant extension
     which is used to interpret the phantom by BEAMnrc simulations.
@@ -2139,7 +2242,7 @@ def write_phantom_file(imgs, b_x, b_y, b_z, folder, table):
 
     print('Writing media...')
     #Line 1 = Number of media in the phantom
-    f.write(' {}\n' .format(len(table)))
+    f.write('{}\n' .format(len(table)))
 
     #Sorting the list of materials by material number which is dependent on min CT value
     sorted_table = [0] * len(table)
@@ -2200,8 +2303,8 @@ def write_phantom_file(imgs, b_x, b_y, b_z, folder, table):
     #Line 8 = XY array with medium number in each voxel for each z slice
 
     #=====ASSIGNING MATERIALS TO VOXELS=====
-    minimumCT = min([int(item.MinCT) for item in table])
-    maximumCT = max([int(item.MaxCT) for item in table])
+    minimumCT = min([float(item.MinCT) for item in table])
+    maximumCT = max([float(item.MaxCT) for item in table])
     
     mat_number_cube = np.copy(imgs)
     for material in table:
@@ -2225,7 +2328,9 @@ def write_phantom_file(imgs, b_x, b_y, b_z, folder, table):
         for y in z:
             for x in y:
 
-                f.write("{:02d}".format(x))
+                f.write(chars[int(x)-1])
+                # This was used to write double digit material numbers
+                #f.write("{:02d}".format(x))
 
             f.write('\n')
         f.write('\n')
@@ -2276,49 +2381,13 @@ def write_phantom_file(imgs, b_x, b_y, b_z, folder, table):
     f.close()
 
 
-#CSS colour + styling
-colors = {
-    'background':'#1c1e22',
-    'text': '#FF8000',
-    'borders': '#FF8000',
-    'purple':'#6600CC'
-}
+# ## Application
 
-tabs_styles = {
-    'height': '5vh',
-    'font-size': '3vh',
-    'fontWeight': 'bold',
-    'marginLeft':'1.5vh',
-    'marginRight':'1.5vh',
-    'marginBottom':'1.5vh',
-    'marginTop':'1.5vh',
-}
-tab_style = {
-    'borderTop': '1px solid white',
-    'borderBottom': '1px solid white',
-    'borderRight': '1px solid white',
-    'borderLeft': '1px solid white',
-    'backgroundColor': '#3a3f44',
-    'color': 'white',
-    'padding': '0',
-}
+# In[35]:
 
-tab_selected_style = {
-    'borderColor': colors['text'],
-    'borderTop': '3px solid ',    
-    'borderBottom': '3px solid ',
-    'borderRight': '3px solid ',
-    'borderLeft': '3px solid ',
-    'backgroundColor': colors['background'],
-    'color': colors['text'],
-    'padding': '0',
-}
 
-#=====================================================================================
-#======================================APPLICATION====================================
-#=====================================================================================
-
-app = dash.Dash(__name__)
+#app = dash.Dash(__name__, assets_folder=resource_path('assets'), external_stylesheets=[dbc.themes.BOOTSTRAP])
+app = dash.Dash(__name__)#, external_stylesheets=[dbc.themes.LUMEN])
 
 app.index_string = '''
 <!DOCTYPE html>
@@ -2343,279 +2412,596 @@ app.index_string = '''
 app.config.suppress_callback_exceptions = True
 
 app.title = 'OrthoPlan'
-app._favicon='favicon_p.ico'
 
 SCAN = 1
 del SCAN
-
 #=====================================================================================
 #============================APPLICATION LAYOUT=======================================
 #=====================================================================================
 
 app.layout = html.Div(
-    style={'backgroundColor': colors['background'],
+    children=[
+        html.Div(
+            id='disclaimer',
+            hidden=False,
+            style={'backgroundColor': colors['background'],
+           'borderTop': '0.5vh solid #FF8000',
+           'borderBottom': '0.5vh solid #FF8000',
+           'borderLeft': '0.3vw solid #FF8000',
+           'borderRight': '0.3vw solid #FF8000',
+           'height':'100vh',
+          },
+            children=[
+            html.H1('Disclaimer',style={
+                                'height':'5%',
+                                'textAlign': 'center',
+                                'font-family': 'Arial, Helvetica, sans-serif',
+                                "text-decoration": "underline",
+                                #'paddingBottom': '1%',
+                                'marginTop': '10vh',
+                                #'marginBottom': '0.7vh',
+                                'font-size':'5vh',
+                                #'background-image': 'linear-gradient(#f79800,#EF3405)',#'linear-gradient(#1c1e22, #000000)'
+                                #'background': '-webkit-linear-gradient(#f79800,#EF3405)',
+                                #'background-clip': 'text',
+                                #'-webkit-text-fill-color': '-webkit-linear-gradient(#f79800,#EF3405)',#'transparent',
+                                #'color':'linear-gradient(#f79800,#EF3405)',#'transparent',
+                                'letter-spacing':'0.1vw',
+                                'font-weight':'bold',
+                                'background-image': '-webkit-linear-gradient(#f79800,#EF3405)',
+                                '-webkit-background-clip': 'text',
+                                '-webkit-text-fill-color': 'transparent',
+                            }),
+            html.H5('This application is designed to create EGSnrc phantom and input files for DOSXYZnrc simulations.', 
+                    style={'color':'white', 'display':'flex', 'justify-content':'center'}
+                    ),
+            html.H5('Resultant dose distributions should not be used to make any clinical decisions.', 
+                    style={'color':'white', 'display':'flex', 'justify-content':'center'}
+                    ),
+            html.H5('They should only be used for educational purposes.', 
+                    style={'color':'white', 'display':'flex', 'justify-content':'center'}
+                    ),
+            html.Div(html.Button('I acknowledge', id='acknowledge-button', n_clicks=0,), style={'display':'flex', 'justify-content':'center', 'marginTop': '5vh'})
+            ]
+        ),
+        html.Div(
+            id='main-application',
+            hidden=True,
+            style={'backgroundColor': colors['background'],
            'borderTop': '0.5vh solid #FF8000',
            'borderBottom': '0.5vh solid #FF8000',
            'borderLeft': '0.3vw solid #FF8000',
            'borderRight': '0.3vw solid #FF8000',
            'height':'100vh'
           },
-    children=[
-        html.Div(
-            style={
-                'height':'6vh',#'5vh',
-                'width':'100%',
-                'backgroundColor':colors['background'],
-                'borderBottom':'0.5vh solid #FF8000',
-                #'paddingBottom': '5vh',
-                
-            },
             children=[
-                html.H1(
-                    children=app.title,
-                    style={
-                        'height':'100%',
-                        'textAlign': 'center',
-                        'font-family': 'Arial, Helvetica, sans-serif',
-                        #'paddingBottom': '1%',
-                        #'marginTop': '0.7vh',
-                        #'marginBottom': '0.7vh',
-                        'font-size':'5vh',
-                        #'background-image': 'linear-gradient(#f79800,#EF3405)',#'linear-gradient(#1c1e22, #000000)'
-                        #'background': '-webkit-linear-gradient(#f79800,#EF3405)',
-                        #'background-clip': 'text',
-                        #'-webkit-text-fill-color': '-webkit-linear-gradient(#f79800,#EF3405)',#'transparent',
-                        #'color':'linear-gradient(#f79800,#EF3405)',#'transparent',
-                        'letter-spacing':'0.5vw',
-                        'font-weight':'bold',
-                        'background-image': '-webkit-linear-gradient(#f79800,#EF3405)',
-                          '-webkit-background-clip': 'text',
-                          '-webkit-text-fill-color': 'transparent',
-                    }
-                ),
-            ]
-        ),
-        
-        html.Div(
-            style={
-                'height':'93vh',
-                'width':'100%',
-                'backgroundColor':colors['background'],
-            },
-            children=[
-                dcc.ConfirmDialog(
-                    id='imported_CT',
-                    message='',
-                ),
-                
-                dcc.ConfirmDialog(
-                    id='imported_structs',
-                    message='',
-                ),
-                dcc.ConfirmDialog(
-                    id='update_hu_message',
-                    message='',
-                ),
-                dcc.ConfirmDialog(
-                    id='accept_ct_message',
-                    message='',
-                ),
-                
-                dcc.Tabs(
-                    style=tabs_styles,
-                    children=[
 
-                        dcc.Tab(
-                            label='Import',
-                            style=tab_style,
-                            selected_style=tab_selected_style,
+                html.Div(
+                    style={
+                        'height':'6vh',#'5vh',
+                        'width':'100%',
+                        'backgroundColor':colors['background'],
+                        'borderBottom':'0.5vh solid #FF8000',
+                        #'paddingBottom': '5vh',
+                        
+                    },
+                    children=[
+                        html.H1(
+                            children=app.title,
+                            style={
+                                'height':'100%',
+                                'textAlign': 'center',
+                                'font-family': 'titlefont',#'Arial, Helvetica, sans-serif',
+                                #'paddingBottom': '1%',
+                                #'marginTop': '0.7vh',
+                                #'marginBottom': '0.7vh',
+                                'font-size':'5vh',
+                                #'background-image': 'linear-gradient(#f79800,#EF3405)',#'linear-gradient(#1c1e22, #000000)'
+                                #'background': '-webkit-linear-gradient(#f79800,#EF3405)',
+                                #'background-clip': 'text',
+                                #'-webkit-text-fill-color': '-webkit-linear-gradient(#f79800,#EF3405)',#'transparent',
+                                #'color':'linear-gradient(#f79800,#EF3405)',#'transparent',
+                                'letter-spacing':'0.5vw',
+                                #'font-weight':'bold',
+                                'background-image': '-webkit-linear-gradient(#f79800,#EF3405)',
+                                '-webkit-background-clip': 'text',
+                                '-webkit-text-fill-color': 'transparent',
+                            }
+                        ),
+                    ]
+                ),
+                
+                html.Div(
+                    style={
+                        'height':'93vh',
+                        'width':'100%',
+                        'backgroundColor':colors['background'],
+                    },
+                    children=[
+                        dcc.ConfirmDialog(
+                            id='imported_CT',
+                            message='',
+                        ),
+                        
+                        dcc.ConfirmDialog(
+                            id='imported_structs',
+                            message='',
+                        ),
+                        dcc.ConfirmDialog(
+                            id='update_hu_message',
+                            message='',
+                        ),
+                        dcc.ConfirmDialog(
+                            id='accept_ct_message',
+                            message='',
+                        ),
+                        
+                        dcc.Tabs(
+                            style=tabs_styles,
                             children=[
-                                html.Div(
+
+                                dcc.Tab(
+                                    label='Import',
+                                    style=tab_style,
+                                    selected_style=tab_selected_style,
                                     children=[
                                         html.Div(
-                                            style={
-                                                'backgroundColor': '#272b30',
-                                                'height':'100%',
-                                                'width':'20%',
-                                                'display':'inline-block'
-                                            },
-                                            children=[
-                                                                                                
-                                                html.Button(
-                                                    'Import CT Folder',
-                                                    id = 'B_import_ct',
-                                                    n_clicks = None,
-                                                    title='Select a folder containing DICOM CT files',
-                                                    style={'marginTop':'1vh', 'marginBottom':'1vh', 'width':'90%','height':'5.5vh',
-                                                          'marginLeft':'5%', 'marginRight':'5%',}
-                                                ),
-                                                
-                                                html.Div(
-                                                    id='scan_info_table',
-                                                    style={
-                                                    'min-height':'3vh',
-                                                        'backgroundColor': colors['background'],
-                                                        'width':'96%',
-                                                        'height':'26vh',
-                                                        'maxWidth':'96%',
-                                                        'margin':'auto',
-                                                        'padding':'1%',
-                                                        'overflow-x': 'auto'
-                                                    },
-                                                    children=[          
-                                                    ]
-                                                ),
-
-                                                html.Button(
-                                                    'Import Structure Set',
-                                                    id = 'B_import_struct',
-                                                    n_clicks = None,
-                                                    title='Select a DICOM structure set file',
-                                                    style={'marginTop':'1vh', 'marginBottom':'1vh', 'width':'90%', 'height':'5.5vh',
-                                                          'marginLeft':'5%', 'marginRight':'5%',}
-                                                ),
-
-                                                html.Div(
-                                                    id='structures_checkboxes',
-                                                    style={
-                                                    'min-height':'3vh',
-                                                        'backgroundColor': colors['background'],
-                                                        'width':'96%',
-                                                        'margin':'auto',
-                                                        'padding':'1%',
-                                                        'height': '42vh', 
-                                                        'overflow-y': 'auto'
-                                                    },
-                                                    children=[
-
-                                                        dcc.Checklist(
-                                                            id='structures_checklist',
-                                                            options=[],
-                                                            value=[],
-                                                            style={'color': 'white',
-                                                                    'font-size': '3vh'
-                                                            },
-                                                            labelStyle={'color':'white'},
-                                                            inputStyle={'height':'2vh',
-                                                                    'width':'2vw',
-                                                                    'margin-right': '0.2vw'}
-                                                        )
-                                                    ]
-                                                ), 
-                                            ]
-                                        ),
-                                        
-                                        html.Div(
-                                            style={
-                                                'backgroundColor': colors['background'],
-                                                'height':'100%',
-                                                'width':'60%',
-                                                'display':'inline-block',
-                                                'vertical-align':'top'
-                                            },
                                             children=[
                                                 html.Div(
-                                                    id='main_plot',
                                                     style={
                                                         'backgroundColor': '#272b30',
-                                                        'height':'70vh',
-                                                        'width':'33vw',
-                                                        'marginLeft':'1vw',
-                                                        'marginTop':'1vh',
+                                                        'height':'100%',
+                                                        'width':'20%',
                                                         'display':'inline-block'
                                                     },
                                                     children=[
+                                                                                                        
+                                                        html.Button(
+                                                            'Import CT Folder',
+                                                            id = 'B_import_ct',
+                                                            n_clicks = None,
+                                                            title='Select a folder containing DICOM CT files',
+                                                            style={'marginTop':'1vh', 'marginBottom':'1vh', 'width':'90%','height':'5.5vh',
+                                                                'marginLeft':'5%', 'marginRight':'5%',}
+                                                        ),
+                                                        
+                                                        html.Div(
+                                                            id='scan_info_table',
+                                                            style={
+                                                            'min-height':'3vh',
+                                                                'backgroundColor': colors['background'],
+                                                                'width':'96%',
+                                                                'height':'26vh',
+                                                                'maxWidth':'96%',
+                                                                'margin':'auto',
+                                                                'padding':'1%',
+                                                                'overflow-x': 'auto'
+                                                            },
+                                                            children=[          
+                                                            ]
+                                                        ),
 
+                                                        html.Button(
+                                                            'Import Structure Set',
+                                                            id = 'B_import_struct',
+                                                            n_clicks = None,
+                                                            title='Select a DICOM structure set file',
+                                                            style={'marginTop':'1vh', 'marginBottom':'1vh', 'width':'90%', 'height':'5.5vh',
+                                                                'marginLeft':'5%', 'marginRight':'5%',}
+                                                        ),
+
+                                                        html.Div(
+                                                            id='structures_checkboxes',
+                                                            style={
+                                                            'min-height':'3vh',
+                                                                'backgroundColor': colors['background'],
+                                                                'width':'96%',
+                                                                'margin':'auto',
+                                                                'padding':'1%',
+                                                                'height': '42vh', 
+                                                                'overflow-y': 'auto'
+                                                            },
+                                                            children=[
+
+                                                                dcc.Checklist(
+                                                                    id='structures_checklist',
+                                                                    options=[],
+                                                                    value=[],
+                                                                    style={'color': 'white',
+                                                                            'font-size': '3vh'
+                                                                    },
+                                                                    labelStyle={'color':'white'},
+                                                                    inputStyle={'height':'2vh',
+                                                                            'width':'2vw',
+                                                                            'margin-right': '0.2vw'}
+                                                                )
+                                                            ]
+                                                        ), 
                                                     ]
                                                 ),
                                                 
                                                 html.Div(
                                                     style={
                                                         'backgroundColor': colors['background'],
-                                                        'height':'70vh',
-                                                        'width':'17vw',
-                                                        'marginLeft':'1vw',
-                                                        'marginTop':'1vh',
-                                                        'display':'inline-block'
+                                                        'height':'100%',
+                                                        'width':'60%',
+                                                        'display':'inline-block',
+                                                        'vertical-align':'top'
                                                     },
                                                     children=[
-                                                        
                                                         html.Div(
-                                                            id='sub1_plot',
+                                                            id='main_plot',
                                                             style={
                                                                 'backgroundColor': '#272b30',
-                                                                'height':'34.5vh',
-                                                                'width':'100%',
-                                                                'display':'block'
-                                                            },
-                                                            children=[
-
-                                                            ]
-                                                        ),  
-                                                        
-                                                        html.Div(
-                                                            id='sub2_plot',
-                                                            style={
-                                                                'backgroundColor': '#272b30',
-                                                                'height':'34.5vh',
-                                                                'width':'100%',
+                                                                'height':'70vh',
+                                                                'width':'33vw',
+                                                                'marginLeft':'1vw',
                                                                 'marginTop':'1vh',
-                                                                'display':'block'
+                                                                'display':'inline-block'
                                                             },
                                                             children=[
 
                                                             ]
-                                                        ),  
-                                                    ]
-                                                ),                                                
-                                                
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'70vh',
-                                                        'width':'1vw',
-                                                        'marginLeft':'1vw',
-                                                        'marginTop':'1vh',
-                                                        'display':'inline-block'
-                                                    },
-                                                    children=[
-                                                        dcc.RangeSlider(
-                                                            id='WLCT',
-                                                            min=-1000,
-                                                            max=1000,
-                                                            marks=None,
-                                                            #value=[-1000, 1000],
-                                                            allowCross=False,
-                                                            included=True,
-                                                            step=1,
-                                                            vertical=True,
-                                                            className='slider',
-                                                            tooltip={'always visible':True,
-                                                                     'placement':'left'}
+                                                        ),
+                                                        
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'70vh',
+                                                                'width':'17vw',
+                                                                'marginLeft':'1vw',
+                                                                'marginTop':'1vh',
+                                                                'display':'inline-block'
+                                                            },
+                                                            children=[
+                                                                
+                                                                html.Div(
+                                                                    id='sub1_plot',
+                                                                    style={
+                                                                        'backgroundColor': '#272b30',
+                                                                        'height':'34.5vh',
+                                                                        'width':'100%',
+                                                                        'display':'block'
+                                                                    },
+                                                                    children=[
+
+                                                                    ]
+                                                                ),  
+                                                                
+                                                                html.Div(
+                                                                    id='sub2_plot',
+                                                                    style={
+                                                                        'backgroundColor': '#272b30',
+                                                                        'height':'34.5vh',
+                                                                        'width':'100%',
+                                                                        'marginTop':'1vh',
+                                                                        'display':'block'
+                                                                    },
+                                                                    children=[
+
+                                                                    ]
+                                                                ),  
+                                                            ]
+                                                        ),                                                
+                                                        
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'70vh',
+                                                                'width':'1vw',
+                                                                'marginLeft':'1vw',
+                                                                'marginTop':'1vh',
+                                                                'display':'inline-block'
+                                                            },
+                                                            children=[
+                                                                dcc.RangeSlider(
+                                                                    id='WLCT',
+                                                                    min=-1000,
+                                                                    max=1000,
+                                                                    marks=None,
+                                                                    #value=[-1000, 1000],
+                                                                    allowCross=False,
+                                                                    included=True,
+                                                                    step=1,
+                                                                    vertical=True,
+                                                                    className='slider',
+                                                                    tooltip={'always visible':True,
+                                                                            'placement':'left'}
+                                                                ),
+                                                            ]
+                                                        ),
+                                                        
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'7vh',
+                                                                'width':'100%',
+                                                                'marginTop':'2vh'                                                        
+                                                            },
+                                                            children=[
+                                                                
+                                                                html.Div(
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'100%',
+                                                                        'width':'33vw',
+                                                                        'marginLeft':'1vw',
+                                                                        'display':'inline-block'
+                                                                    },
+                                                                    children=[
+                                                                        dcc.Slider(
+                                                                            id='slider_CT',
+                                                                            min=0,
+                                                                            max=1,
+                                                                            value=1,
+                                                                            marks=[],
+                                                                            tooltip={'always visible':True,
+                                                                                    'placement':'top'}
+                                                                        )
+                                                                    ]
+                                                                ),
+                                                                
+                                                                html.Div(
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'100%',
+                                                                        'width':'22vw',
+                                                                        'marginLeft':'1vw',
+                                                                        'display':'inline-block',
+                                                                        'vertical-align':'top'
+                                                                    },
+                                                                    children=[
+                                                                        dcc.RadioItems(
+                                                                            id='tab1_view_CT',
+                                                                            options=[
+                                                                                {'label': 'Axial', 'value': 'A'},
+                                                                                {'label': 'Saggital', 'value': 'S'},
+                                                                                {'label': 'Coronal', 'value': 'C'}
+                                                                            ],
+                                                                            value='A',
+                                                                            labelStyle={'display':'inline-block',
+                                                                                    'font-size':'1.5vw',
+                                                                                    'color':'white'},
+                                                                            inputStyle={'height':'2.5vh',
+                                                                                    'margin-left': '1vw',
+                                                                                    'margin-right': '0.5vw'}
+                                                                        )
+                                                                    ]
+                                                                ),
+                                                            ]
                                                         ),
                                                     ]
                                                 ),
                                                 
                                                 html.Div(
                                                     style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'7vh',
-                                                        'width':'100%',
-                                                        'marginTop':'2vh'                                                        
+                                                        'backgroundColor': '#272b30',
+                                                        'height':'100%',
+                                                        'width':'20%',
+                                                        'display':'inline-block',
+                                                        'vertical-align':'top'
                                                     },
                                                     children=[
+                                                        html.H3(
+                                                            children='HU Changer',
+                                                            style={
+                                                                'textAlign': 'center',
+                                                                'color': colors['text'],
+                                                                'font-family': 'Arial, Helvetica, sans-serif',
+                                                                'padding': '0',
+                                                                'marginTop': '1vh',
+                                                                'paddingBottom':'2%',
+                                                                'borderBottom':'0.1vh solid #FF8000'
+                                                            }
+                                                        ),
                                                         
+                                                        html.H4(
+                                                            children='Select a structure:',
+                                                            style={
+                                                                'textAlign': 'left',
+                                                                'color': colors['text'],
+                                                                'font-family': 'Arial, Helvetica, sans-serif',
+                                                                'padding': '0',
+                                                                'marginTop': '2vh',
+                                                                'marginLeft':'2%'
+                                                            }
+                                                        ),
+                                                        
+                                                        dcc.Dropdown(
+                                                            id='HU_ch_dropdown',
+                                                            options=[
+                                                            ],
+                                                            value=None,
+                                                            style={
+                                                                'width':'90%',
+                                                                'marginLeft':'5%',
+                                                                'marginRight':'5%',
+                                                                'height':'4vh',
+                                                            }
+                                                        ),
+                                                        
+                                                        html.H4(
+                                                            children='Enter new HU:',
+                                                            style={
+                                                                'textAlign': 'left',
+                                                                'color': colors['text'],
+                                                                'font-family': 'Arial, Helvetica, sans-serif',
+                                                                'padding': '0',
+                                                                'marginTop': '3vh',
+                                                                'marginLeft':'2%'
+                                                            }
+                                                        ),
+                                                        
+                                                        dcc.Input(
+                                                            id='new_HU',
+                                                            type='number',
+                                                            placeholder='Enter new HU',
+                                                            value=None,
+                                                            debounce=True,
+                                                            inputMode='numeric',
+                                                            step=1,
+                                                            style={
+                                                                'width':'90%',
+                                                                'marginLeft':'5%',
+                                                                'marginRight':'5%'
+                                                            }
+                                                        ),
+                                                        html.H6(
+                                                            children='Lead = 8335 HU',
+                                                            style={
+                                                                'textAlign': 'left',
+                                                                'color': colors['text'],
+                                                                'font-family': 'Arial, Helvetica, sans-serif',
+                                                                'padding': '0',
+                                                                'marginTop': '1vh',
+                                                                'marginLeft':'5%'
+                                                            }
+                                                        ),
+                                                        
+                                                        html.Button(
+                                                            'Change HU value',
+                                                            id = 'B_change_hu',
+                                                            n_clicks = None,
+                                                            title='Change HU value of the selected structure',
+                                                            style={'marginTop':'3vh', 'marginBottom':'1vh', 'width':'90%', 'height':'5.5vh',
+                                                                'marginLeft':'5%', 'marginRight':'5%',}
+                                                        ),
+                                                        
+                                                        html.Button(
+                                                            'Accept CT images',
+                                                            id = 'B_accept',
+                                                            n_clicks = None,
+                                                            title='Accept currently displayed data',
+                                                            style={'marginTop':'10%', 'width':'90%', 'height':'5.5vh',
+                                                                'marginLeft':'5%', 'marginRight':'5%',}
+                                                                #'color':'black','backgroundColor':'#009900'}
+                                                        ),
+                                                    ]
+                                                )
+                                            ],
+                                            style={
+                                                'backgroundColor': 'green',
+                                                'height':'84vh',
+                                                'marginLeft':'1.5vh',
+                                                'marginRight':'1.5vh'
+                                            }
+                                        ),
+                                    ]
+                                ),
+
+                                dcc.Tab(
+                                    label='Region of Interest',
+                                    style=tab_style,
+                                    selected_style=tab_selected_style,
+                                    children=[
+                                        html.Div(
+                                            children=[
+                                                        
+                                                html.Div(
+                                                    style={
+                                                        'backgroundColor': colors['background'],
+                                                        'height':'70%',
+                                                        'width':'100%',
+                                                        'display':'inline-block',
+                                                        'vertical-align':'bottom'
+                                                    },
+                                                    children=[
+                                                        dcc.ConfirmDialog(
+                                                            id='accept_roi_message',
+                                                            message='',
+                                                        ),
+                                                        html.Div(
+                                                            id='ROI_plot1',
+                                                            style={
+                                                                'backgroundColor': '#272b30',
+                                                                'height':'95%',
+                                                                'width':'30%',
+                                                                'marginLeft':'1%',
+                                                                'marginTop':'1%',
+                                                                'display':'inline-block'
+                                                            },
+                                                            children=[
+
+                                                            ]
+                                                        ),
+
+                                                        html.Div(
+                                                            id='ROI_plot2',
+                                                            style={
+                                                                'backgroundColor': '#272b30',
+                                                                'height':'95%',
+                                                                'width':'30%',
+                                                                'marginLeft':'1%',
+                                                                'marginTop':'1%',
+                                                                'display':'inline-block'
+                                                            },
+                                                            children=[
+
+                                                            ]
+                                                        ),
+
+                                                        html.Div(
+                                                            id='ROI_plot3',
+                                                            style={
+                                                                'backgroundColor': '#272b30',
+                                                                'height':'95%',
+                                                                'width':'30%',
+                                                                'marginLeft':'1%',
+                                                                'marginTop':'1%',
+                                                                'display':'inline-block'
+                                                            },
+                                                            children=[
+
+                                                            ]
+                                                        ),
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'95%',
+                                                                'width':'5%',
+                                                                'marginLeft':'1%',
+                                                                'marginTop':'1%',
+                                                                'display':'inline-block'
+                                                            },
+                                                            children=[
+                                                                dcc.RangeSlider(
+                                                                    id='ROI_CT_window',
+                                                                    min=-1000,
+                                                                    max=1000,
+                                                                    marks=None,
+                                                                    value=[-1000, 1000],
+                                                                    allowCross=False,
+                                                                    included=True,
+                                                                    step=1,
+                                                                    vertical=True,
+                                                                    className='slider',
+                                                                    tooltip={'always visible':True,
+                                                                            'placement':'left'}
+                                                                ),
+                                                            ]
+                                                        )
+                                                    ]
+                                                ),
+
+                                                html.Div(
+                                                    style={
+                                                        'backgroundColor': colors['background'],
+                                                        'height':'6%',
+                                                        'width':'100%',
+                                                        'display':'inline-block'
+                                                    },
+                                                    children=[
                                                         html.Div(
                                                             style={
                                                                 'backgroundColor': colors['background'],
                                                                 'height':'100%',
-                                                                'width':'33vw',
-                                                                'marginLeft':'1vw',
+                                                                'width':'30%',
+                                                                'marginLeft':'1%',
                                                                 'display':'inline-block'
                                                             },
                                                             children=[
                                                                 dcc.Slider(
-                                                                    id='slider_CT',
+                                                                    id='ROI_slider1',
                                                                     min=0,
                                                                     max=1,
                                                                     value=1,
@@ -2625,451 +3011,649 @@ app.layout = html.Div(
                                                                 )
                                                             ]
                                                         ),
-                                                        
+
                                                         html.Div(
                                                             style={
                                                                 'backgroundColor': colors['background'],
                                                                 'height':'100%',
-                                                                'width':'22vw',
-                                                                'marginLeft':'1vw',
+                                                                'width':'30%',
+                                                                'marginLeft':'1%',
+                                                                'display':'inline-block'
+                                                            },
+                                                            children=[
+                                                                dcc.Slider(
+                                                                    id='ROI_slider2',
+                                                                    min=0,
+                                                                    max=1,
+                                                                    value=1,
+                                                                    marks=[],
+                                                                    tooltip={'always visible':True,
+                                                                            'placement':'top'}
+                                                                )
+                                                            ]
+                                                        ),
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'100%',
+                                                                'width':'30%',
+                                                                'marginLeft':'1%',
+                                                                'display':'inline-block'
+                                                            },
+                                                            children=[
+                                                                dcc.Slider(
+                                                                    id='ROI_slider3',
+                                                                    min=0,
+                                                                    max=1,
+                                                                    value=1,
+                                                                    marks=[],
+                                                                    tooltip={'always visible':True,
+                                                                            'placement':'top'}
+                                                                )
+                                                            ]
+                                                        ),
+
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'100%',
+                                                                'width':'5%',
+                                                                'marginLeft':'1%',
                                                                 'display':'inline-block',
                                                                 'vertical-align':'top'
                                                             },
                                                             children=[
-                                                                dcc.RadioItems(
-                                                                    id='tab1_view_CT',
-                                                                    options=[
-                                                                        {'label': 'Axial', 'value': 'A'},
-                                                                        {'label': 'Saggital', 'value': 'S'},
-                                                                        {'label': 'Coronal', 'value': 'C'}
-                                                                    ],
-                                                                    value='A',
-                                                                    labelStyle={'display':'inline-block',
-                                                                               'font-size':'1.5vw',
-                                                                               'color':'white'},
-                                                                    inputStyle={'height':'2.5vh',
-                                                                               'margin-left': '1vw',
-                                                                               'margin-right': '0.5vw'}
-                                                                )
+                                                                html.H3(
+                                                                    children='Slicer',
+                                                                    style={
+                                                                        'textAlign': 'center',
+                                                                        'color': colors['text'],
+                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                        'marginTop':'0',
+                                                                        'padding':'0'
+                                                                    }
+                                                                ),
+                                                            ]
+                                                        ),     
+                                                    ]
+                                                ),
+
+                                                html.Div(
+                                                    style={
+                                                        'backgroundColor': colors['background'],
+                                                        'height':'6%',
+                                                        'width':'100%',
+                                                        'display':'inline-block'
+                                                    },
+                                                    children=[
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': '#CC0000',
+                                                                'borderRadius':'5px',
+                                                                'height':'100%',
+                                                                'width':'30%',
+                                                                'marginLeft':'1%',
+                                                                'display':'inline-block'
+                                                            },
+                                                            children=[
+                                                                dcc.RangeSlider(
+                                                                    id='ROI_rangez',
+                                                                    min=-1000,
+                                                                    max=1000,
+                                                                    marks=None,
+                                                                    value=[-1000, 1000],
+                                                                    allowCross=False,
+                                                                    included=True,
+                                                                    step=1,
+                                                                    className='rangeslider',
+                                                                    tooltip={'always visible':True,
+                                                                            'placement':'left'}
+                                                                ),
+                                                            ]
+                                                        ),
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': '#0000CC',
+                                                                'borderRadius':'5px',
+                                                                'height':'100%',
+                                                                'width':'30%',
+                                                                'marginLeft':'1%',
+                                                                'display':'inline-block'
+                                                            },
+                                                            children=[
+                                                                dcc.RangeSlider(
+                                                                    id='ROI_rangex',
+                                                                    min=-1000,
+                                                                    max=1000,
+                                                                    marks=None,
+                                                                    value=[-1000, 1000],
+                                                                    allowCross=False,
+                                                                    included=True,
+                                                                    step=1,
+                                                                    className='rangeslider',
+                                                                    tooltip={'always visible':True,
+                                                                            'placement':'left'}
+                                                                ),
+                                                            ]
+                                                        ),
+
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': '#00CC00',
+                                                                'borderRadius':'5px',
+                                                                'height':'100%',
+                                                                'width':'30%',
+                                                                'marginLeft':'1%',
+                                                                'display':'inline-block'
+                                                            },
+                                                            children=[
+                                                                dcc.RangeSlider(
+                                                                    id='ROI_rangey',
+                                                                    min=-1000,
+                                                                    max=1000,
+                                                                    marks=None,
+                                                                    value=[-1000, 1000],
+                                                                    allowCross=False,
+                                                                    included=True,
+                                                                    step=1,
+                                                                    className='rangeslider',
+                                                                    tooltip={'always visible':True,
+                                                                            'placement':'left'}
+                                                                ),
+                                                            ]
+                                                        ),
+
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'100%',
+                                                                'width':'5%',
+                                                                'marginLeft':'1%',
+                                                                'display':'inline-block',
+                                                                'vertical-align':'top'
+                                                            },
+                                                            children=[
+                                                                html.H3(
+                                                                    children='Cropper',
+                                                                    style={
+                                                                        'textAlign': 'center',
+                                                                        'color': colors['text'],
+                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                        'marginTop':'0',
+                                                                        'padding':'0'
+                                                                    }
+                                                                ),
                                                             ]
                                                         ),
                                                     ]
                                                 ),
-                                            ]
-                                        ),
-                                        
-                                        html.Div(
+
+                                                html.Div(
+                                                    style={
+                                                        'backgroundColor': colors['background'],
+                                                        'height':'17%',
+                                                        'width':'100%',
+                                                        'display':'inline-block'
+                                                    },
+                                                    children=[
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'100%',
+                                                                'width':'50%',
+                                                                'display':'inline-block',
+                                                                'vertical-align':'top'
+                                                            },
+                                                            children=[
+                                                                html.Div(
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'33%',
+                                                                        'width':'100%',
+                                                                        'marginLeft':'1%',
+                                                                        'display':'inline-block',
+                                                                        'vertical-align':'top'
+                                                                    },
+                                                                    children=[
+                                                                        html.Div(
+                                                                            style={
+                                                                                'backgroundColor': colors['background'],
+                                                                                'height':'100%',
+                                                                                'width':'30%',
+                                                                                'marginLeft':'10%',
+                                                                                'display':'inline-block',
+                                                                                'vertical-align':'top'
+                                                                            },
+                                                                            children=[
+                                                                                html.H4(
+                                                                                    children='# X voxels = ',
+                                                                                    style={
+                                                                                        #'textAlign': 'center',
+                                                                                        'color': colors['text'],
+                                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                                        'marginLeft':'5%',
+                                                                                        'marginTop':'0',
+                                                                                        'padding':'0'
+                                                                                    }
+                                                                                ),
+                                                                                
+                                                                            ]
+                                                                        ),
+                                                                        
+                                                                        html.Div(
+                                                                            style={
+                                                                                'backgroundColor': colors['background'],
+                                                                                'height':'100%',
+                                                                                'width':'30%',
+                                                                                'marginLeft':'1%',
+                                                                                'display':'inline-block',
+                                                                                'vertical-align':'top'
+                                                                            },
+                                                                            children=[
+                                                                                html.H4(
+                                                                                    id='xvoxnum',
+                                                                                    children=0,
+                                                                                    style={
+                                                                                        #'textAlign': 'center',
+                                                                                        'color': colors['text'],
+                                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                                        'marginLeft':'5%',
+                                                                                        'marginTop':'0',
+                                                                                        'padding':'0'
+                                                                                    }
+                                                                                ),
+                                                                                
+                                                                            ]
+                                                                        )         
+                                                                    ]
+                                                                ),
+
+                                                                html.Div(
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'33%',
+                                                                        'width':'100%',
+                                                                        'marginLeft':'1%',
+                                                                        'display':'inline-block'
+                                                                    },
+                                                                    children=[
+                                                                        html.Div(
+                                                                            style={
+                                                                                'backgroundColor': colors['background'],
+                                                                                'height':'100%',
+                                                                                'width':'30%',
+                                                                                'marginLeft':'10%',
+                                                                                'display':'inline-block',
+                                                                                'vertical-align':'top'
+                                                                            },
+                                                                            children=[
+                                                                                html.H4(
+                                                                                    children='# Y voxels = ',
+                                                                                    style={
+                                                                                        #'textAlign': 'center',
+                                                                                        'color': colors['text'],
+                                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                                        'marginLeft':'5%',
+                                                                                        'marginTop':'0',
+                                                                                        'padding':'0'
+                                                                                    }
+                                                                                ),
+                                                                                
+                                                                            ]
+                                                                        ),
+                                                                        
+                                                                        html.Div(
+                                                                            style={
+                                                                                'backgroundColor': colors['background'],
+                                                                                'height':'100%',
+                                                                                'width':'30%',
+                                                                                'marginLeft':'1%',
+                                                                                'display':'inline-block',
+                                                                                'vertical-align':'top'
+                                                                            },
+                                                                            children=[
+                                                                                html.H4(
+                                                                                    id='yvoxnum',
+                                                                                    children=0,
+                                                                                    style={
+                                                                                        #'textAlign': 'center',
+                                                                                        'color': colors['text'],
+                                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                                        'marginLeft':'5%',
+                                                                                        'marginTop':'0',
+                                                                                        'padding':'0'
+                                                                                    }
+                                                                                ),
+                                                                                
+                                                                            ]
+                                                                        )
+                                                                    ]
+                                                                ),
+
+                                                                html.Div(
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'33%',
+                                                                        'width':'100%',
+                                                                        'marginLeft':'1%',
+                                                                        'display':'inline-block'
+                                                                    },
+                                                                    children=[
+                                                                        html.Div(
+                                                                            style={
+                                                                                'backgroundColor': colors['background'],
+                                                                                'height':'100%',
+                                                                                'width':'30%',
+                                                                                'marginLeft':'10%',
+                                                                                'display':'inline-block',
+                                                                                'vertical-align':'top'
+                                                                            },
+                                                                            children=[
+                                                                                html.H4(
+                                                                                    children='# Z voxels = ',
+                                                                                    style={
+                                                                                        #'textAlign': 'center',
+                                                                                        'color': colors['text'],
+                                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                                        'marginLeft':'5%',
+                                                                                        'marginTop':'0',
+                                                                                        'padding':'0'
+                                                                                    }
+                                                                                ),
+                                                                                
+                                                                            ]
+                                                                        ),
+                                                                        
+                                                                        html.Div(
+                                                                            style={
+                                                                                'backgroundColor': colors['background'],
+                                                                                'height':'100%',
+                                                                                'width':'30%',
+                                                                                'marginLeft':'1%',
+                                                                                'display':'inline-block',
+                                                                                'vertical-align':'top'
+                                                                            },
+                                                                            children=[
+                                                                                html.H4(
+                                                                                    id='zvoxnum',
+                                                                                    children=0,
+                                                                                    style={
+                                                                                        #'textAlign': 'center',
+                                                                                        'color': colors['text'],
+                                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                                        'marginLeft':'5%',
+                                                                                        'marginTop':'0',
+                                                                                        'padding':'0'
+                                                                                    }
+                                                                                ),
+                                                                                
+                                                                            ]
+                                                                        )
+                                                                    ]
+                                                                ),
+                                                            ]
+                                                        ),
+
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'100%',
+                                                                'width':'43%',
+                                                                'display':'inline-block',
+                                                                'vertical-align':'top'
+                                                            },
+                                                            children=[
+                                                                html.Div(
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'50%',
+                                                                        'width':'100%',
+                                                                        'display':'inline-block'
+                                                                    },
+                                                                    children=[
+                                                                        html.Div(
+                                                                            style={
+                                                                                'backgroundColor': colors['background'],
+                                                                                'height':'100%',
+                                                                                'width':'35%',
+                                                                                'marginLeft':'0%',
+                                                                                'display':'inline-block',
+                                                                                'vertical-align':'top'
+                                                                            },
+                                                                            children=[
+                                                                                html.H4(
+                                                                                    children='# Total voxels = ',
+                                                                                    style={
+                                                                                        #'textAlign': 'center',
+                                                                                        'color': colors['text'],
+                                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                                        'marginLeft':'5%',
+                                                                                        'marginTop':'8%',
+                                                                                        'padding':'0'
+                                                                                    }
+                                                                                ),
+                                                                                
+                                                                            ]
+                                                                        ),
+                                                                        
+                                                                        html.Div(
+                                                                            style={
+                                                                                'backgroundColor': colors['background'],
+                                                                                'height':'100%',
+                                                                                'width':'35%',
+                                                                                'marginLeft':'10%',
+                                                                                'display':'inline-block',
+                                                                                'vertical-align':'top'
+                                                                            },
+                                                                            children=[
+                                                                                html.H4(
+                                                                                    id='totvoxnum',
+                                                                                    children=0,
+                                                                                    style={
+                                                                                        #'textAlign': 'center',
+                                                                                        'color': colors['text'],
+                                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                                        'marginLeft':'1%',
+                                                                                        'marginTop':'8%',
+                                                                                        'padding':'0'
+                                                                                    }
+                                                                                ),
+                                                                                
+                                                                            ]
+                                                                        )
+                                                                    ]
+                                                                ),
+
+                                                                html.Div(
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'50%',
+                                                                        'width':'100%',
+                                                                        'display':'inline-block'
+                                                                    },
+                                                                    children=[
+                                                                        html.Div(
+                                                                            style={
+                                                                                'backgroundColor': colors['background'],
+                                                                                'height':'100%',
+                                                                                'width':'35%',
+                                                                                'marginLeft':'0%',
+                                                                                'display':'inline-block',
+                                                                                'vertical-align':'top'
+                                                                            },
+                                                                            children=[
+                                                                                html.H4(
+                                                                                    children='Max allowed voxels = ',
+                                                                                    style={
+                                                                                        #'textAlign': 'center',
+                                                                                        'color': colors['text'],
+                                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                                        'marginLeft':'5%',
+                                                                                        'marginTop':'0',
+                                                                                        'padding':'0'
+                                                                                    }
+                                                                                ),
+                                                                                
+                                                                            ]
+                                                                        ),
+                                                                        
+                                                                        html.Div(
+                                                                            style={
+                                                                                'backgroundColor': colors['background'],
+                                                                                'height':'100%',
+                                                                                'width':'35%',
+                                                                                'marginLeft':'10%',
+                                                                                'display':'inline-block',
+                                                                                'vertical-align':'top'
+                                                                            },
+                                                                            children=[
+                                                                                html.H4(
+                                                                                    children=max_DOSXYZ_voxels,
+                                                                                    style={
+                                                                                        #'textAlign': 'center',
+                                                                                        'color': colors['text'],
+                                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                                        'marginLeft':'1%',
+                                                                                        'marginTop':'0',
+                                                                                        'padding':'0'
+                                                                                    }
+                                                                                ),
+                                                                                
+                                                                            ]
+                                                                        )
+                                                                    ]
+                                                                ),
+                                                            ]
+                                                        ),
+
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'100%',
+                                                                'width':'7%',
+                                                                'display':'inline-block',
+                                                                'vertical-align':'top'
+                                                            },
+                                                            children=[
+                                                                html.Button(
+                                                                    'Accept',
+                                                                    id = 'B_OK',
+                                                                    n_clicks = None,
+                                                                    title='Accept displayed ROI',
+                                                                    style={'width':'100%',
+                                                                        'marginTop':'20%', 'height':'5.5vh',
+                                                                        'font-size':'0.8vw'} 
+                                                                        #'color':'black','backgroundColor':'#009900'}
+                                                                ),
+                                                            ]
+                                                        ), 
+
+                                                    ]
+                                                ),
+                                            ],
                                             style={
-                                                'backgroundColor': '#272b30',
-                                                'height':'100%',
-                                                'width':'20%',
-                                                'display':'inline-block',
-                                                'vertical-align':'top'
-                                            },
-                                            children=[
-                                                html.H3(
-                                                    children='HU Changer',
-                                                    style={
-                                                        'textAlign': 'center',
-                                                        'color': colors['text'],
-                                                        'font-family': 'Arial, Helvetica, sans-serif',
-                                                        'padding': '0',
-                                                        'marginTop': '1vh',
-                                                        'paddingBottom':'2%',
-                                                        'borderBottom':'0.1vh solid #FF8000'
-                                                    }
-                                                ),
-                                                
-                                                html.H4(
-                                                    children='Select a structure:',
-                                                    style={
-                                                        'textAlign': 'left',
-                                                        'color': colors['text'],
-                                                        'font-family': 'Arial, Helvetica, sans-serif',
-                                                        'padding': '0',
-                                                        'marginTop': '2vh',
-                                                        'marginLeft':'2%'
-                                                    }
-                                                ),
-                                                
-                                                dcc.Dropdown(
-                                                    id='HU_ch_dropdown',
-                                                    options=[
-                                                    ],
-                                                    value=None,
-                                                    style={
-                                                        'width':'90%',
-                                                        'marginLeft':'5%',
-                                                        'marginRight':'5%',
-                                                        'height':'4vh',
-                                                    }
-                                                ),
-                                                
-                                                html.H4(
-                                                    children='Enter new HU:',
-                                                    style={
-                                                        'textAlign': 'left',
-                                                        'color': colors['text'],
-                                                        'font-family': 'Arial, Helvetica, sans-serif',
-                                                        'padding': '0',
-                                                        'marginTop': '3vh',
-                                                        'marginLeft':'2%'
-                                                    }
-                                                ),
-                                                
-                                                dcc.Input(
-                                                    id='new_HU',
-                                                    type='number',
-                                                    placeholder='Enter new HU',
-                                                    value=None,
-                                                    debounce=True,
-                                                    inputMode='numeric',
-                                                    step=1,
-                                                    style={
-                                                        'width':'90%',
-                                                        'marginLeft':'5%',
-                                                        'marginRight':'5%'
-                                                    }
-                                                ),
-                                                
-                                                html.Button(
-                                                    'Change HU value',
-                                                    id = 'B_change_hu',
-                                                    n_clicks = None,
-                                                    title='Change HU value of the selected structure',
-                                                    style={'marginTop':'3vh', 'marginBottom':'1vh', 'width':'90%', 'height':'5.5vh',
-                                                          'marginLeft':'5%', 'marginRight':'5%',}
-                                                ),
-                                                
-                                                html.Button(
-                                                    'Accept CT images',
-                                                    id = 'B_accept',
-                                                    n_clicks = None,
-                                                    title='Accept currently displayed data',
-                                                    style={'marginTop':'10%', 'width':'90%', 'height':'5.5vh',
-                                                          'marginLeft':'5%', 'marginRight':'5%',}
-                                                           #'color':'black','backgroundColor':'#009900'}
-                                                ),
-                                            ]
-                                        )
-                                    ],
-                                    style={
-                                        'backgroundColor': 'green',
-                                        'height':'84vh',
-                                        'marginLeft':'1.5vh',
-                                        'marginRight':'1.5vh'
-                                    }
+                                                'backgroundColor': colors['background'],
+                                                'height':'84vh',
+                                                'marginLeft':'1.5vh',
+                                                'marginRight':'1.5vh'
+                                            }
+                                        ),
+                                    ]
                                 ),
-                            ]
-                        ),
 
-                        dcc.Tab(
-                            label='Region of Interest',
-                            style=tab_style,
-                            selected_style=tab_selected_style,
-                            children=[
-                                html.Div(
+                                dcc.Tab(
+                                    label='Tissue Segmentation',
+                                    style=tab_style,
+                                    selected_style=tab_selected_style,
                                     children=[
+                                        html.Div(
+                                            children=[
+                                                html.Div(
+                                                    children=[
+                                                        html.Div(
+                                                            id='CT_map',
+                                                            style={
+                                                                'backgroundColor': '#272b30',
+                                                                'height':'45%',
+                                                                'width':'95%',
+                                                                'marginLeft':'2.5%',
+                                                                'marginTop':'1%',
+                                                                'display':'inline-block',
+                                                                'vertical-align':'top'
+                                                            },
+                                                            children=[
+
+                                                            ]
+                                                        ),
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'48%',
+                                                                'width':'25%',
+                                                                'marginLeft':'1%',
+                                                                'marginTop':'2%',
+                                                                'display':'inline-block',
+                                                                'vertical-align':'top'
+                                                            },
+                                                            children=[
+                                                                html.H2(
+                                                                    children='Preset',
+                                                                    style={
+                                                                        #'textAlign': 'center',
+                                                                        'color': colors['text'],
+                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                        'marginLeft':'5%',
+                                                                        'marginTop':'1%',
+                                                                        'paddingBottom':'2%',
+                                                                        'borderBottom':'0.1vh solid #FF8000'
+                                                                    }
+                                                                ),
+                                                                
+                                                                dcc.RadioItems(
+                                                                    id='tissue_preset',
+                                                                    options=[
+                                                                        {'label': 'Head and Neck', 'value': 'HN'},
+                                                                        {'label': 'Torso', 'value': 'T'},
+                                                                        {'label': 'Extremities', 'value': 'A'},
+                                                                        {'label': 'ICRU MESH', 'value': 'MESH'},
+                                                                        {'label': 'CIRS Phantom', 'value': 'CIRS'}
+                                                                    ],
+                                                                    value='',
+                                                                    labelStyle={#'display':'inline-block',
+                                                                            'font-size':'1.5vw',
+                                                                            'color':'white'},
+                                                                    inputStyle={'height':'20px',
+                                                                            'margin-left': '2px',
+                                                                            'margin-right': '5px'}
+                                                                )
+                                                            ]
+                                                        ),
+                                                                                                        
+                                                        html.Div(
+                                                            id='table_container',
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'48%',
+                                                                'width':'72%',
+                                                                'marginLeft':'1%',
+                                                                'marginTop':'5%',
+                                                                'display':'inline-block',
+                                                                'vertical-align':'top',
+                                                                'overflow-y': 'auto'
+                                                            },
+                                                            children=[
+                                                                
+                                                            ]
+                                                        ),
+                                                    ],
+                                                    style={
+                                                        'backgroundColor': colors['background'],
+                                                        'height':'100%',
+                                                        'width':'50%',
+                                                        'display':'inline-block',                                                
+                                                    }
+                                                ),
                                                 
-                                        html.Div(
-                                            style={
-                                                'backgroundColor': colors['background'],
-                                                'height':'70%',
-                                                'width':'100%',
-                                                'display':'inline-block',
-                                                'vertical-align':'bottom'
-                                            },
-                                            children=[
-                                                dcc.ConfirmDialog(
-                                                    id='accept_roi_message',
-                                                    message='',
-                                                ),
-                                                html.Div(
-                                                    id='ROI_plot1',
-                                                    style={
-                                                        'backgroundColor': '#272b30',
-                                                        'height':'95%',
-                                                        'width':'30%',
-                                                        'marginLeft':'1%',
-                                                        'marginTop':'1%',
-                                                        'display':'inline-block'
-                                                    },
-                                                    children=[
-
-                                                    ]
-                                                ),
-
-                                                html.Div(
-                                                    id='ROI_plot2',
-                                                    style={
-                                                        'backgroundColor': '#272b30',
-                                                        'height':'95%',
-                                                        'width':'30%',
-                                                        'marginLeft':'1%',
-                                                        'marginTop':'1%',
-                                                        'display':'inline-block'
-                                                    },
-                                                    children=[
-
-                                                    ]
-                                                ),
-
-                                                html.Div(
-                                                    id='ROI_plot3',
-                                                    style={
-                                                        'backgroundColor': '#272b30',
-                                                        'height':'95%',
-                                                        'width':'30%',
-                                                        'marginLeft':'1%',
-                                                        'marginTop':'1%',
-                                                        'display':'inline-block'
-                                                    },
-                                                    children=[
-
-                                                    ]
-                                                ),
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'95%',
-                                                        'width':'5%',
-                                                        'marginLeft':'1%',
-                                                        'marginTop':'1%',
-                                                        'display':'inline-block'
-                                                    },
-                                                    children=[
-                                                        dcc.RangeSlider(
-                                                            id='ROI_CT_window',
-                                                            min=-1000,
-                                                            max=1000,
-                                                            marks=None,
-                                                            value=[-1000, 1000],
-                                                            allowCross=False,
-                                                            included=True,
-                                                            step=1,
-                                                            vertical=True,
-                                                            className='slider',
-                                                            tooltip={'always visible':True,
-                                                                     'placement':'left'}
-                                                        ),
-                                                    ]
-                                                )
-                                            ]
-                                        ),
-
-                                        html.Div(
-                                            style={
-                                                'backgroundColor': colors['background'],
-                                                'height':'6%',
-                                                'width':'100%',
-                                                'display':'inline-block'
-                                            },
-                                            children=[
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'100%',
-                                                        'width':'30%',
-                                                        'marginLeft':'1%',
-                                                        'display':'inline-block'
-                                                    },
-                                                    children=[
-                                                        dcc.Slider(
-                                                            id='ROI_slider1',
-                                                            min=0,
-                                                            max=1,
-                                                            value=1,
-                                                            marks=[],
-                                                            tooltip={'always visible':True,
-                                                                    'placement':'top'}
-                                                        )
-                                                    ]
-                                                ),
-
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'100%',
-                                                        'width':'30%',
-                                                        'marginLeft':'1%',
-                                                        'display':'inline-block'
-                                                    },
-                                                    children=[
-                                                        dcc.Slider(
-                                                            id='ROI_slider2',
-                                                            min=0,
-                                                            max=1,
-                                                            value=1,
-                                                            marks=[],
-                                                            tooltip={'always visible':True,
-                                                                    'placement':'top'}
-                                                        )
-                                                    ]
-                                                ),
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'100%',
-                                                        'width':'30%',
-                                                        'marginLeft':'1%',
-                                                        'display':'inline-block'
-                                                    },
-                                                    children=[
-                                                        dcc.Slider(
-                                                            id='ROI_slider3',
-                                                            min=0,
-                                                            max=1,
-                                                            value=1,
-                                                            marks=[],
-                                                            tooltip={'always visible':True,
-                                                                    'placement':'top'}
-                                                        )
-                                                    ]
-                                                ),
-
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'100%',
-                                                        'width':'5%',
-                                                        'marginLeft':'1%',
-                                                        'display':'inline-block',
-                                                        'vertical-align':'top'
-                                                    },
-                                                    children=[
-                                                        html.H3(
-                                                            children='Slicer',
-                                                            style={
-                                                                'textAlign': 'center',
-                                                                'color': colors['text'],
-                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                'marginTop':'0',
-                                                                'padding':'0'
-                                                            }
-                                                        ),
-                                                    ]
-                                                ),     
-                                            ]
-                                        ),
-
-                                        html.Div(
-                                            style={
-                                                'backgroundColor': colors['background'],
-                                                'height':'6%',
-                                                'width':'100%',
-                                                'display':'inline-block'
-                                            },
-                                            children=[
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': '#CC0000',
-                                                        'borderRadius':'5px',
-                                                        'height':'100%',
-                                                        'width':'30%',
-                                                        'marginLeft':'1%',
-                                                        'display':'inline-block'
-                                                    },
-                                                    children=[
-                                                        dcc.RangeSlider(
-                                                            id='ROI_rangez',
-                                                            min=-1000,
-                                                            max=1000,
-                                                            marks=None,
-                                                            value=[-1000, 1000],
-                                                            allowCross=False,
-                                                            included=True,
-                                                            step=1,
-                                                            className='rangeslider',
-                                                            tooltip={'always visible':True,
-                                                                     'placement':'left'}
-                                                        ),
-                                                    ]
-                                                ),
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': '#0000CC',
-                                                        'borderRadius':'5px',
-                                                        'height':'100%',
-                                                        'width':'30%',
-                                                        'marginLeft':'1%',
-                                                        'display':'inline-block'
-                                                    },
-                                                    children=[
-                                                        dcc.RangeSlider(
-                                                            id='ROI_rangex',
-                                                            min=-1000,
-                                                            max=1000,
-                                                            marks=None,
-                                                            value=[-1000, 1000],
-                                                            allowCross=False,
-                                                            included=True,
-                                                            step=1,
-                                                            className='rangeslider',
-                                                            tooltip={'always visible':True,
-                                                                     'placement':'left'}
-                                                        ),
-                                                    ]
-                                                ),
-
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': '#00CC00',
-                                                        'borderRadius':'5px',
-                                                        'height':'100%',
-                                                        'width':'30%',
-                                                        'marginLeft':'1%',
-                                                        'display':'inline-block'
-                                                    },
-                                                    children=[
-                                                        dcc.RangeSlider(
-                                                            id='ROI_rangey',
-                                                            min=-1000,
-                                                            max=1000,
-                                                            marks=None,
-                                                            value=[-1000, 1000],
-                                                            allowCross=False,
-                                                            included=True,
-                                                            step=1,
-                                                            className='rangeslider',
-                                                            tooltip={'always visible':True,
-                                                                     'placement':'left'}
-                                                        ),
-                                                    ]
-                                                ),
-
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'100%',
-                                                        'width':'5%',
-                                                        'marginLeft':'1%',
-                                                        'display':'inline-block',
-                                                        'vertical-align':'top'
-                                                    },
-                                                    children=[
-                                                        html.H3(
-                                                            children='Cropper',
-                                                            style={
-                                                                'textAlign': 'center',
-                                                                'color': colors['text'],
-                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                'marginTop':'0',
-                                                                'padding':'0'
-                                                            }
-                                                        ),
-                                                    ]
-                                                ),
-                                            ]
-                                        ),
-
-                                        html.Div(
-                                            style={
-                                                'backgroundColor': colors['background'],
-                                                'height':'17%',
-                                                'width':'100%',
-                                                'display':'inline-block'
-                                            },
-                                            children=[
                                                 html.Div(
                                                     style={
                                                         'backgroundColor': colors['background'],
@@ -3080,1240 +3664,797 @@ app.layout = html.Div(
                                                     },
                                                     children=[
                                                         html.Div(
+                                                            id='main_plot_tissue',
                                                             style={
-                                                                'backgroundColor': colors['background'],
-                                                                'height':'33%',
-                                                                'width':'100%',
+                                                                'backgroundColor': '#272b30',
+                                                                'height':'74%',
+                                                                'width':'60%',
                                                                 'marginLeft':'1%',
-                                                                'display':'inline-block',
-                                                                'vertical-align':'top'
-                                                            },
-                                                            children=[
-                                                                html.Div(
-                                                                    style={
-                                                                        'backgroundColor': colors['background'],
-                                                                        'height':'100%',
-                                                                        'width':'30%',
-                                                                        'marginLeft':'10%',
-                                                                        'display':'inline-block',
-                                                                        'vertical-align':'top'
-                                                                    },
-                                                                    children=[
-                                                                        html.H4(
-                                                                            children='# X voxels = ',
-                                                                            style={
-                                                                                #'textAlign': 'center',
-                                                                                'color': colors['text'],
-                                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                                'marginLeft':'5%',
-                                                                                'marginTop':'0',
-                                                                                'padding':'0'
-                                                                            }
-                                                                        ),
-                                                                        
-                                                                    ]
-                                                                ),
-                                                                
-                                                                html.Div(
-                                                                    style={
-                                                                        'backgroundColor': colors['background'],
-                                                                        'height':'100%',
-                                                                        'width':'30%',
-                                                                        'marginLeft':'1%',
-                                                                        'display':'inline-block',
-                                                                        'vertical-align':'top'
-                                                                    },
-                                                                    children=[
-                                                                        html.H4(
-                                                                            id='xvoxnum',
-                                                                            children=0,
-                                                                            style={
-                                                                                #'textAlign': 'center',
-                                                                                'color': colors['text'],
-                                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                                'marginLeft':'5%',
-                                                                                'marginTop':'0',
-                                                                                'padding':'0'
-                                                                            }
-                                                                        ),
-                                                                        
-                                                                    ]
-                                                                )         
-                                                            ]
-                                                        ),
-
-                                                        html.Div(
-                                                            style={
-                                                                'backgroundColor': colors['background'],
-                                                                'height':'33%',
-                                                                'width':'100%',
-                                                                'marginLeft':'1%',
-                                                                'display':'inline-block'
-                                                            },
-                                                            children=[
-                                                                html.Div(
-                                                                    style={
-                                                                        'backgroundColor': colors['background'],
-                                                                        'height':'100%',
-                                                                        'width':'30%',
-                                                                        'marginLeft':'10%',
-                                                                        'display':'inline-block',
-                                                                        'vertical-align':'top'
-                                                                    },
-                                                                    children=[
-                                                                        html.H4(
-                                                                            children='# Y voxels = ',
-                                                                            style={
-                                                                                #'textAlign': 'center',
-                                                                                'color': colors['text'],
-                                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                                'marginLeft':'5%',
-                                                                                'marginTop':'0',
-                                                                                'padding':'0'
-                                                                            }
-                                                                        ),
-                                                                        
-                                                                    ]
-                                                                ),
-                                                                
-                                                                html.Div(
-                                                                    style={
-                                                                        'backgroundColor': colors['background'],
-                                                                        'height':'100%',
-                                                                        'width':'30%',
-                                                                        'marginLeft':'1%',
-                                                                        'display':'inline-block',
-                                                                        'vertical-align':'top'
-                                                                    },
-                                                                    children=[
-                                                                        html.H4(
-                                                                            id='yvoxnum',
-                                                                            children=0,
-                                                                            style={
-                                                                                #'textAlign': 'center',
-                                                                                'color': colors['text'],
-                                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                                'marginLeft':'5%',
-                                                                                'marginTop':'0',
-                                                                                'padding':'0'
-                                                                            }
-                                                                        ),
-                                                                        
-                                                                    ]
-                                                                )
-                                                            ]
-                                                        ),
-
-                                                        html.Div(
-                                                            style={
-                                                                'backgroundColor': colors['background'],
-                                                                'height':'33%',
-                                                                'width':'100%',
-                                                                'marginLeft':'1%',
-                                                                'display':'inline-block'
-                                                            },
-                                                            children=[
-                                                                html.Div(
-                                                                    style={
-                                                                        'backgroundColor': colors['background'],
-                                                                        'height':'100%',
-                                                                        'width':'30%',
-                                                                        'marginLeft':'10%',
-                                                                        'display':'inline-block',
-                                                                        'vertical-align':'top'
-                                                                    },
-                                                                    children=[
-                                                                        html.H4(
-                                                                            children='# Z voxels = ',
-                                                                            style={
-                                                                                #'textAlign': 'center',
-                                                                                'color': colors['text'],
-                                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                                'marginLeft':'5%',
-                                                                                'marginTop':'0',
-                                                                                'padding':'0'
-                                                                            }
-                                                                        ),
-                                                                        
-                                                                    ]
-                                                                ),
-                                                                
-                                                                html.Div(
-                                                                    style={
-                                                                        'backgroundColor': colors['background'],
-                                                                        'height':'100%',
-                                                                        'width':'30%',
-                                                                        'marginLeft':'1%',
-                                                                        'display':'inline-block',
-                                                                        'vertical-align':'top'
-                                                                    },
-                                                                    children=[
-                                                                        html.H4(
-                                                                            id='zvoxnum',
-                                                                            children=0,
-                                                                            style={
-                                                                                #'textAlign': 'center',
-                                                                                'color': colors['text'],
-                                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                                'marginLeft':'5%',
-                                                                                'marginTop':'0',
-                                                                                'padding':'0'
-                                                                            }
-                                                                        ),
-                                                                        
-                                                                    ]
-                                                                )
-                                                            ]
-                                                        ),
-                                                    ]
-                                                ),
-
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'100%',
-                                                        'width':'43%',
-                                                        'display':'inline-block',
-                                                        'vertical-align':'top'
-                                                    },
-                                                    children=[
-                                                        html.Div(
-                                                            style={
-                                                                'backgroundColor': colors['background'],
-                                                                'height':'50%',
-                                                                'width':'100%',
-                                                                'display':'inline-block'
-                                                            },
-                                                            children=[
-                                                                html.Div(
-                                                                    style={
-                                                                        'backgroundColor': colors['background'],
-                                                                        'height':'100%',
-                                                                        'width':'35%',
-                                                                        'marginLeft':'0%',
-                                                                        'display':'inline-block',
-                                                                        'vertical-align':'top'
-                                                                    },
-                                                                    children=[
-                                                                        html.H4(
-                                                                            children='# Total voxels = ',
-                                                                            style={
-                                                                                #'textAlign': 'center',
-                                                                                'color': colors['text'],
-                                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                                'marginLeft':'5%',
-                                                                                'marginTop':'8%',
-                                                                                'padding':'0'
-                                                                            }
-                                                                        ),
-                                                                        
-                                                                    ]
-                                                                ),
-                                                                
-                                                                html.Div(
-                                                                    style={
-                                                                        'backgroundColor': colors['background'],
-                                                                        'height':'100%',
-                                                                        'width':'35%',
-                                                                        'marginLeft':'10%',
-                                                                        'display':'inline-block',
-                                                                        'vertical-align':'top'
-                                                                    },
-                                                                    children=[
-                                                                        html.H4(
-                                                                            id='totvoxnum',
-                                                                            children=0,
-                                                                            style={
-                                                                                #'textAlign': 'center',
-                                                                                'color': colors['text'],
-                                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                                'marginLeft':'1%',
-                                                                                'marginTop':'8%',
-                                                                                'padding':'0'
-                                                                            }
-                                                                        ),
-                                                                        
-                                                                    ]
-                                                                )
-                                                            ]
-                                                        ),
-
-                                                        html.Div(
-                                                            style={
-                                                                'backgroundColor': colors['background'],
-                                                                'height':'50%',
-                                                                'width':'100%',
-                                                                'display':'inline-block'
-                                                            },
-                                                            children=[
-                                                                html.Div(
-                                                                    style={
-                                                                        'backgroundColor': colors['background'],
-                                                                        'height':'100%',
-                                                                        'width':'35%',
-                                                                        'marginLeft':'0%',
-                                                                        'display':'inline-block',
-                                                                        'vertical-align':'top'
-                                                                    },
-                                                                    children=[
-                                                                        html.H4(
-                                                                            children='Max allowed voxels = ',
-                                                                            style={
-                                                                                #'textAlign': 'center',
-                                                                                'color': colors['text'],
-                                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                                'marginLeft':'5%',
-                                                                                'marginTop':'0',
-                                                                                'padding':'0'
-                                                                            }
-                                                                        ),
-                                                                        
-                                                                    ]
-                                                                ),
-                                                                
-                                                                html.Div(
-                                                                    style={
-                                                                        'backgroundColor': colors['background'],
-                                                                        'height':'100%',
-                                                                        'width':'35%',
-                                                                        'marginLeft':'10%',
-                                                                        'display':'inline-block',
-                                                                        'vertical-align':'top'
-                                                                    },
-                                                                    children=[
-                                                                        html.H4(
-                                                                            children=max_DOSXYZ_voxels,
-                                                                            style={
-                                                                                #'textAlign': 'center',
-                                                                                'color': colors['text'],
-                                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                                'marginLeft':'1%',
-                                                                                'marginTop':'0',
-                                                                                'padding':'0'
-                                                                            }
-                                                                        ),
-                                                                        
-                                                                    ]
-                                                                )
-                                                            ]
-                                                        ),
-                                                    ]
-                                                ),
-
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'100%',
-                                                        'width':'7%',
-                                                        'display':'inline-block',
-                                                        'vertical-align':'top'
-                                                    },
-                                                    children=[
-                                                        html.Button(
-                                                            'Accept',
-                                                            id = 'B_OK',
-                                                            n_clicks = None,
-                                                            title='Accept displayed ROI',
-                                                            style={'width':'100%',
-                                                                  'marginTop':'20%', 'height':'5.5vh',
-                                                                  'font-size':'0.8vw'} 
-                                                                   #'color':'black','backgroundColor':'#009900'}
-                                                        ),
-                                                    ]
-                                                ), 
-
-                                            ]
-                                        ),
-                                    ],
-                                    style={
-                                        'backgroundColor': colors['background'],
-                                        'height':'84vh',
-                                        'marginLeft':'1.5vh',
-                                        'marginRight':'1.5vh'
-                                    }
-                                ),
-                            ]
-                        ),
-
-                        dcc.Tab(
-                            label='Tissue Segmentation',
-                            style=tab_style,
-                            selected_style=tab_selected_style,
-                            children=[
-                                html.Div(
-                                    children=[
-                                        html.Div(
-                                            children=[
-                                                html.Div(
-                                                    id='CT_map',
-                                                    style={
-                                                        'backgroundColor': '#272b30',
-                                                        'height':'45%',
-                                                        'width':'95%',
-                                                        'marginLeft':'2.5%',
-                                                        'marginTop':'1%',
-                                                        'display':'inline-block',
-                                                        'vertical-align':'top'
-                                                    },
-                                                    children=[
-
-                                                    ]
-                                                ),
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'48%',
-                                                        'width':'25%',
-                                                        'marginLeft':'1%',
-                                                        'marginTop':'2%',
-                                                        'display':'inline-block',
-                                                        'vertical-align':'top'
-                                                    },
-                                                    children=[
-                                                        html.H2(
-                                                            children='Preset',
-                                                            style={
-                                                                #'textAlign': 'center',
-                                                                'color': colors['text'],
-                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                'marginLeft':'5%',
                                                                 'marginTop':'1%',
-                                                                'paddingBottom':'2%',
-                                                                'borderBottom':'0.1vh solid #FF8000'
-                                                            }
+                                                                'display':'inline-block'
+                                                            },
+                                                            children=[
+
+                                                            ]
                                                         ),
                                                         
-                                                        dcc.RadioItems(
-                                                            id='tissue_preset',
-                                                            options=[
-                                                                {'label': 'Head and Neck', 'value': 'HN'},
-                                                                {'label': 'Torso', 'value': 'T'},
-                                                                {'label': 'Extremities', 'value': 'A'},
-                                                                {'label': 'CIRS Phantom', 'value': 'CIRS'}
-                                                            ],
-                                                            value='',
-                                                            labelStyle={#'display':'inline-block',
-                                                                       'font-size':'1.5vw',
-                                                                       'color':'white'},
-                                                            inputStyle={'height':'20px',
-                                                                       'margin-left': '2px',
-                                                                       'margin-right': '5px'}
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'74%',
+                                                                'width':'37%',
+                                                                'marginLeft':'1%',
+                                                                'marginTop':'1%',
+                                                                'display':'inline-block'
+                                                            },
+                                                            children=[
+                                                                
+                                                                html.Div(
+                                                                    id='sub1_plot_tissue',
+                                                                    style={
+                                                                        'backgroundColor': '#272b30',
+                                                                        'height':'49%',
+                                                                        'width':'100%',
+                                                                        'display':'block'
+                                                                    },
+                                                                    children=[
+
+                                                                    ]
+                                                                ),  
+                                                                
+                                                                html.Div(
+                                                                    id='sub2_plot_tissue',
+                                                                    style={
+                                                                        'backgroundColor': '#272b30',
+                                                                        'height':'49%',
+                                                                        'width':'100%',
+                                                                        'marginTop':'2%',
+                                                                        'display':'block'
+                                                                    },
+                                                                    children=[
+
+                                                                    ]
+                                                                ),  
+                                                            ]
+                                                        ),                                                
+                                
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'7%',
+                                                                'width':'100%',
+                                                                'marginTop':'1%'                                                        
+                                                            },
+                                                            children=[
+                                                                
+                                                                html.Div(
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'100%',
+                                                                        'width':'60%',
+                                                                        'marginLeft':'1%',
+                                                                        'display':'inline-block'
+                                                                    },
+                                                                    children=[
+                                                                        dcc.Slider(
+                                                                            id='slider_CT_tissue',
+                                                                            min=0,
+                                                                            max=1,
+                                                                            value=1,
+                                                                            marks=[],
+                                                                            tooltip={'always visible':True,
+                                                                                    'placement':'top'}
+                                                                        )
+                                                                    ]
+                                                                ),
+                                                                
+                                                                html.Div(
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'100%',
+                                                                        'width':'37%',
+                                                                        'marginLeft':'1%',
+                                                                        'display':'inline-block',
+                                                                        'vertical-align':'top'
+                                                                    },
+                                                                    children=[
+                                                                        dcc.RadioItems(
+                                                                            id='tab3_view_CT',
+                                                                            options=[
+                                                                                {'label': 'Axial', 'value': 'A'},
+                                                                                {'label': 'Saggital', 'value': 'S'},
+                                                                                {'label': 'Coronal', 'value': 'C'}
+                                                                            ],
+                                                                            value='A',
+                                                                            labelStyle={'display':'inline-block',
+                                                                                    'font-size':'1vw',
+                                                                                    'color':'white'},
+                                                                            inputStyle={'height':'20px',
+                                                                                    'margin-left': '10px',
+                                                                                    'margin-right': '5px'}
+                                                                        )
+                                                                    ]
+                                                                ),                                                        
+                                                            ]
+                                                        ),
+                                                        
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'7%',
+                                                                'width':'100%',
+                                                                'marginTop':'1%'                                                        
+                                                            },
+                                                            children=[
+                                                                
+                                                                html.Div(
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'100%',
+                                                                        'width':'60%',
+                                                                        'marginLeft':'1%',
+                                                                        'display':'inline-block'
+                                                                    },
+                                                                    children=[
+                                                                        dcc.RangeSlider(
+                                                                            id='window_tissue',
+                                                                            min=-1000,
+                                                                            max=1000,
+                                                                            marks=None,
+                                                                            value=[-1000, 1000],
+                                                                            allowCross=False,
+                                                                            included=True,
+                                                                            step=1,
+                                                                            vertical=False,
+                                                                            className='rangeslider',
+                                                                            tooltip={'always visible':True,
+                                                                                    'placement':'left'}
+                                                                        ),
+                                                                        
+                                                                    ]
+                                                                ),
+                                                                
+                                                                html.Div(
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'100%',
+                                                                        'width':'37%',
+                                                                        'marginLeft':'1%',
+                                                                        'display':'inline-block',
+                                                                        'vertical-align':'top'
+                                                                    },
+                                                                    children=[
+                                                                        html.Button(
+                                                                            'Create Phantom',
+                                                                            id = 'B_phantom',
+                                                                            n_clicks = None,
+                                                                            title='Create MC phantom file',
+                                                                            style={
+                                                                                'width':'80%', 'height':'5.5vh',
+                                                                                'marginTop':'1%',
+                                                                                'marginLeft':'10%'}
+                                                                                #'color':'black',
+                                                                                #'backgroundColor':'#009900'
+                                                                        ),
+                                                                        
+                                                                        dcc.ConfirmDialog(
+                                                                            id='preset_message',
+                                                                            message='',
+                                                                        ),
+                                                                        dcc.ConfirmDialog(
+                                                                            id='phantom_message_1',
+                                                                            message='',
+                                                                        ),
+                                                                        dcc.ConfirmDialog(
+                                                                            id='phantom_message',
+                                                                            message='',
+                                                                        ),
+                                                                    ]
+                                                                ),
+                                                            ]
+                                                        ),
+                                                        html.Div(
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'display':'inline-block',
+                                                                'vertical-align':'top',
+                                                                'height':'5%',
+                                                                'width':'100%',
+                                                                'marginTop':'1%'
+                                                            },
+                                                            children=[
+                                                                dcc.Interval(id="interval", interval=2000, disabled=True),
+                                                                dbc.Progress( id="progress", label='0%',
+                                                                            value=0, max=100, striped=True,
+                                                                            style={"height": "100%",
+                                                                                    'width':'95%',
+                                                                                    'marginLeft':'2.5%',
+                                                                                'font-size': '30px',
+                                                                                'background-color': '#3a3f44',
+                                                                                    'border-radius': '1rem'}
+                                                                            )
+                                                                        
+                                                            ]
                                                         )
-                                                    ]
-                                                ),
-                                                                                                
-                                                html.Div(
-                                                    id='table_container',
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'44%',
-                                                        'width':'72%',
-                                                        'marginLeft':'1%',
-                                                        'marginTop':'5%',
-                                                        'display':'inline-block',
-                                                        'vertical-align':'top'
-                                                    },
-                                                    children=[
                                                         
                                                     ]
                                                 ),
+
                                             ],
                                             style={
                                                 'backgroundColor': colors['background'],
-                                                'height':'100%',
-                                                'width':'50%',
-                                                'display':'inline-block',                                                
+                                                'height':'84vh',
+                                                'marginLeft':'1.5vh',
+                                                'marginRight':'1.5vh'
                                             }
                                         ),
-                                        
-                                        html.Div(
-                                            style={
-                                                'backgroundColor': colors['background'],
-                                                'height':'100%',
-                                                'width':'50%',
-                                                'display':'inline-block',
-                                                'vertical-align':'top'
-                                            },
-                                            children=[
-                                                html.Div(
-                                                    id='main_plot_tissue',
-                                                    style={
-                                                        'backgroundColor': '#272b30',
-                                                        'height':'74%',
-                                                        'width':'60%',
-                                                        'marginLeft':'1%',
-                                                        'marginTop':'1%',
-                                                        'display':'inline-block'
-                                                    },
-                                                    children=[
-
-                                                    ]
-                                                ),
-                                                
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'74%',
-                                                        'width':'37%',
-                                                        'marginLeft':'1%',
-                                                        'marginTop':'1%',
-                                                        'display':'inline-block'
-                                                    },
-                                                    children=[
-                                                        
-                                                        html.Div(
-                                                            id='sub1_plot_tissue',
-                                                            style={
-                                                                'backgroundColor': '#272b30',
-                                                                'height':'49%',
-                                                                'width':'100%',
-                                                                'display':'block'
-                                                            },
-                                                            children=[
-
-                                                            ]
-                                                        ),  
-                                                        
-                                                        html.Div(
-                                                            id='sub2_plot_tissue',
-                                                            style={
-                                                                'backgroundColor': '#272b30',
-                                                                'height':'49%',
-                                                                'width':'100%',
-                                                                'marginTop':'2%',
-                                                                'display':'block'
-                                                            },
-                                                            children=[
-
-                                                            ]
-                                                        ),  
-                                                    ]
-                                                ),                                                
-                        
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'7%',
-                                                        'width':'100%',
-                                                        'marginTop':'1%'                                                        
-                                                    },
-                                                    children=[
-                                                        
-                                                        html.Div(
-                                                            style={
-                                                                'backgroundColor': colors['background'],
-                                                                'height':'100%',
-                                                                'width':'60%',
-                                                                'marginLeft':'1%',
-                                                                'display':'inline-block'
-                                                            },
-                                                            children=[
-                                                                dcc.Slider(
-                                                                    id='slider_CT_tissue',
-                                                                    min=0,
-                                                                    max=1,
-                                                                    value=1,
-                                                                    marks=[],
-                                                                    tooltip={'always visible':True,
-                                                                            'placement':'top'}
-                                                                )
-                                                            ]
-                                                        ),
-                                                        
-                                                        html.Div(
-                                                            style={
-                                                                'backgroundColor': colors['background'],
-                                                                'height':'100%',
-                                                                'width':'37%',
-                                                                'marginLeft':'1%',
-                                                                'display':'inline-block',
-                                                                'vertical-align':'top'
-                                                            },
-                                                            children=[
-                                                                dcc.RadioItems(
-                                                                    id='tab3_view_CT',
-                                                                    options=[
-                                                                        {'label': 'Axial', 'value': 'A'},
-                                                                        {'label': 'Saggital', 'value': 'S'},
-                                                                        {'label': 'Coronal', 'value': 'C'}
-                                                                    ],
-                                                                    value='A',
-                                                                    labelStyle={'display':'inline-block',
-                                                                               'font-size':'1vw',
-                                                                               'color':'white'},
-                                                                    inputStyle={'height':'20px',
-                                                                               'margin-left': '10px',
-                                                                               'margin-right': '5px'}
-                                                                )
-                                                            ]
-                                                        ),                                                        
-                                                    ]
-                                                ),
-                                                
-                                                html.Div(
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'7%',
-                                                        'width':'100%',
-                                                        'marginTop':'1%'                                                        
-                                                    },
-                                                    children=[
-                                                        
-                                                        html.Div(
-                                                            style={
-                                                                'backgroundColor': colors['background'],
-                                                                'height':'100%',
-                                                                'width':'60%',
-                                                                'marginLeft':'1%',
-                                                                'display':'inline-block'
-                                                            },
-                                                            children=[
-                                                                dcc.RangeSlider(
-                                                                    id='window_tissue',
-                                                                    min=-1000,
-                                                                    max=1000,
-                                                                    marks=None,
-                                                                    value=[-1000, 1000],
-                                                                    allowCross=False,
-                                                                    included=True,
-                                                                    step=1,
-                                                                    vertical=False,
-                                                                    className='rangeslider',
-                                                                    tooltip={'always visible':True,
-                                                                             'placement':'left'}
-                                                                ),
-                                                                
-                                                            ]
-                                                        ),
-                                                        
-                                                        html.Div(
-                                                            style={
-                                                                'backgroundColor': colors['background'],
-                                                                'height':'100%',
-                                                                'width':'37%',
-                                                                'marginLeft':'1%',
-                                                                'display':'inline-block',
-                                                                'vertical-align':'top'
-                                                            },
-                                                            children=[
-                                                                html.Button(
-                                                                    'Create Phantom',
-                                                                    id = 'B_phantom',
-                                                                    n_clicks = None,
-                                                                    title='Create MC phantom file',
-                                                                    style={
-                                                                        'width':'80%', 'height':'5.5vh',
-                                                                        'marginTop':'1%',
-                                                                        'marginLeft':'10%'}
-                                                                        #'color':'black',
-                                                                        #'backgroundColor':'#009900'
-                                                                ),
-                                                                
-                                                                dcc.ConfirmDialog(
-                                                                    id='preset_message',
-                                                                    message='',
-                                                                ),
-                                                                dcc.ConfirmDialog(
-                                                                    id='phantom_message_1',
-                                                                    message='',
-                                                                ),
-                                                                dcc.ConfirmDialog(
-                                                                    id='phantom_message',
-                                                                    message='',
-                                                                ),
-                                                            ]
-                                                        ),
-                                                    ]
-                                                ),
-                                                 html.Div(
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'display':'inline-block',
-                                                        'vertical-align':'top',
-                                                        'height':'5%',
-                                                        'width':'100%',
-                                                        'marginTop':'1%'
-                                                    },
-                                                    children=[
-                                                        dcc.Interval(id="interval", interval=2000, disabled=True),
-                                                        dbc.Progress( id="progress", label='0%',
-                                                                     value=0, max=100, striped=True,
-                                                                     style={"height": "100%",
-                                                                            'width':'95%',
-                                                                            'marginLeft':'2.5%',
-                                                                           'font-size': '30px',
-                                                                           'background-color': '#3a3f44',
-                                                                            'border-radius': '1rem'}
-                                                                    )
-                                                                
-                                                    ]
-                                                )
-                                                
-                                            ]
-                                        ),
-
-                                    ],
-                                    style={
-                                        'backgroundColor': colors['background'],
-                                        'height':'84vh',
-                                        'marginLeft':'1.5vh',
-                                        'marginRight':'1.5vh'
-                                    }
+                                    ]
                                 ),
-                            ]
-                        ),
 
-                        dcc.Tab(
-                            label='Treatment Planning',
-                            style=tab_style,
-                            selected_style=tab_selected_style,
-                            children=[
-                                html.Div(
+                                dcc.Tab(
+                                    label='Treatment Planning',
+                                    style=tab_style,
+                                    selected_style=tab_selected_style,
                                     children=[
-                                        
                                         html.Div(
                                             children=[
-                                                html.Div(
-                                                    children=[
-                                                        html.H2(
-                                                            children='Surface calculator',
-                                                            style={
-                                                                #'textAlign': 'center',
-                                                                'color': colors['text'],
-                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                'marginLeft':'2%',
-                                                                'marginTop':'1%',
-                                                                'paddingBottom':'2%',
-                                                                'borderBottom':'0.1vh solid #FF8000'
-                                                            }
-                                                        ),
-
-                                                        html.H4(
-                                                            children='Minimum HU',
-                                                            style={
-                                                                'textAlign': 'left',
-                                                                'color': colors['text'],
-                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                'padding': '0',
-                                                                'marginTop': '3%',
-                                                                'marginLeft':'2%',
-                                                                
-                                                            }
-                                                        ),
-
-                                                        dcc.Input(
-                                                            id='min_HU',
-                                                            type='number',
-                                                            placeholder='Enter min HU value...',
-                                                            value=int(-250),
-                                                            debounce=True,
-                                                            inputMode='numeric',
-                                                            step=1,
-                                                            min=int(-999),
-                                                            style={
-                                                                'width':'50%',
-                                                                'height':'4.5vh',
-                                                                'marginLeft':'3%',
-                                                                'marginRight':'5%'
-                                                            }
-                                                        ),
-                                                        
-                                                         html.H4(
-                                                            children='Smoothness (1-10)',
-                                                            style={
-                                                                'textAlign': 'left',
-                                                                'color': colors['text'],
-                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                'padding': '0',
-                                                                'marginTop': '3%',
-                                                                'marginLeft':'2%'
-                                                            }
-                                                        ),
-
-                                                        dcc.Input(
-                                                            id='triangles',
-                                                            type='number',
-                                                            placeholder='Enter smoothness...',
-                                                            value=int(1),
-                                                            debounce=True,
-                                                            inputMode='numeric',
-                                                            step=1,
-                                                            min=1,
-                                                            max=10,
-                                                            style={
-                                                                'width':'50%',
-                                                                'height':'4.5vh',
-                                                                'marginLeft':'3%',
-                                                                'marginRight':'5%'
-                                                            }
-                                                        ),
-
-                                                        html.Button(
-                                                            'Calculate 3D Surface',
-                                                            id = 'button_surface',
-                                                            n_clicks = None,
-                                                            title='Turn CT slices into a 3D surface with a threshold HU value',
-                                                            style={'marginTop':'5%', 'marginBottom':'1vh', 'width':'80%', 'height':'5.5vh',
-                                                                  'marginLeft':'10%', 'marginRight':'10%',}
-                                                        ),
-                                                        dcc.ConfirmDialog(
-                                                            id='calc_surface_message',
-                                                            message='',
-                                                        ),
-                                                    ],
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'50%',
-                                                        'width':'100%',
-                                                        'display':'inline-block',
-                                                        'vertical-align':'top'
-                                                    }
-                                                ),
                                                 
                                                 html.Div(
                                                     children=[
-                                                        html.H2(
-                                                            children='Applicator',
-                                                            style={
-                                                                #'textAlign': 'center',
-                                                                'color': colors['text'],
-                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                'marginLeft':'2%',
-                                                                'marginTop':'1%',
-                                                                'paddingBottom':'2%',
-                                                                'borderBottom':'0.1vh solid #FF8000'
-                                                            }
-                                                        ),
-
                                                         html.Div(
                                                             children=[
-                                                                html.H4(
-                                                                    children='kV Energy',
+                                                                html.H2(
+                                                                    children='Surface calculator',
                                                                     style={
-                                                                        'textAlign': 'left',
+                                                                        #'textAlign': 'center',
                                                                         'color': colors['text'],
                                                                         'font-family': 'Arial, Helvetica, sans-serif',
-                                                                        'padding': '0',
-                                                                        'marginTop': '0vh',
                                                                         'marginLeft':'2%',
-                                                                        'width':'40%'
-                                                                    }
-                                                                ),
-                                                                dcc.Dropdown(
-                                                                    id='kv_energy',
-                                                                    placeholder='Select kV energy...',
-                                                                    options=[
-                                                                        {'label': '70kV ', 'value': '70'},
-                                                                        {'label': '100kV ', 'value': '100'},
-                                                                        {'label': '125kV ', 'value': '125'},
-                                                                        {'label': '200kV ', 'value': '200'},
-                                                                    ],
-                                                                    value=None,
-                                                                    style={
-                                                                        #'width':'80%',
-                                                                        #'height':'4vh',
-                                                                        'marginLeft':'3%',
-                                                                        'marginRight':'5%',
-                                                                        'display':'inline-block',
-                                                                        'width': '80%',
-                                                                        'height':'4.5vh',
-                                                                        'vertical-align':'top',
-                                                                        'marginTop':'0vh'
+                                                                        'marginTop':'1%',
+                                                                        'paddingBottom':'2%',
+                                                                        'borderBottom':'0.1vh solid #FF8000'
                                                                     }
                                                                 ),
 
                                                                 html.H4(
-                                                                    children='Field Size',
+                                                                    children='Minimum HU',
                                                                     style={
                                                                         'textAlign': 'left',
                                                                         'color': colors['text'],
                                                                         'font-family': 'Arial, Helvetica, sans-serif',
                                                                         'padding': '0',
-                                                                        'marginTop': '1vh',
+                                                                        'marginTop': '3%',
+                                                                        'marginLeft':'2%',
+                                                                        
+                                                                    }
+                                                                ),
+
+                                                                dcc.Input(
+                                                                    id='min_HU',
+                                                                    type='number',
+                                                                    placeholder='Enter min HU value...',
+                                                                    value=int(-250),
+                                                                    debounce=True,
+                                                                    inputMode='numeric',
+                                                                    step=1,
+                                                                    min=int(-999),
+                                                                    style={
+                                                                        'width':'50%',
+                                                                        'height':'4.5vh',
+                                                                        'marginLeft':'3%',
+                                                                        'marginRight':'5%'
+                                                                    }
+                                                                ),
+                                                                
+                                                                html.H4(
+                                                                    children='Smoothness (1-10)',
+                                                                    style={
+                                                                        'textAlign': 'left',
+                                                                        'color': colors['text'],
+                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                        'padding': '0',
+                                                                        'marginTop': '3%',
                                                                         'marginLeft':'2%'
                                                                     }
                                                                 ),
-                                                                
-                                                                dcc.Dropdown(
-                                                                    id='kv_fields',
-                                                                    placeholder='Select field size...',
-                                                                    options=[
-                                                                    ],
-                                                                    value=None,
+
+                                                                dcc.Input(
+                                                                    id='triangles',
+                                                                    type='number',
+                                                                    placeholder='Enter smoothness...',
+                                                                    value=int(1),
+                                                                    debounce=True,
+                                                                    inputMode='numeric',
+                                                                    step=1,
+                                                                    min=1,
+                                                                    max=10,
                                                                     style={
-                                                                        #'width':'80%',
-                                                                        #'height':'4.5vh',
-                                                                        'marginLeft':'3%',
-                                                                        'marginRight':'5%',
-                                                                        'display':'inline-block',
-                                                                        'width': '80%',
+                                                                        'width':'50%',
                                                                         'height':'4.5vh',
-                                                                        'vertical-align':'top',
-                                                                        'marginTop':'0vh',
-                                                                        'line-height':'40px'
+                                                                        'marginLeft':'3%',
+                                                                        'marginRight':'5%'
                                                                     }
                                                                 ),
 
                                                                 html.Button(
-                                                                    'Accept kV applicator',
-                                                                    id = 'Update_3d',
+                                                                    'Calculate 3D Surface',
+                                                                    id = 'button_surface',
                                                                     n_clicks = None,
-                                                                    title='Accept the selected applicator',
-                                                                    style={'marginTop':'7%', 'width':'80%', 'height':'5.5vh',
+                                                                    title='Turn CT slices into a 3D surface with a threshold HU value',
+                                                                    style={'marginTop':'5%', 'marginBottom':'1vh', 'width':'80%', 'height':'5.5vh',
                                                                         'marginLeft':'10%', 'marginRight':'10%',}
-                                                                ), 
+                                                                ),
+                                                                dcc.ConfirmDialog(
+                                                                    id='calc_surface_message',
+                                                                    message='',
+                                                                ),
                                                             ],
                                                             style={
                                                                 'backgroundColor': colors['background'],
-                                                                'height':'10%',
+                                                                'height':'50%',
                                                                 'width':'100%',
-                                                                'marginTop':'1%',
-                                                                'marginBottom':'3%',
                                                                 'display':'inline-block',
                                                                 'vertical-align':'top'
-                                                            }
-                                                        ),   
-
-                                                              
-                                                    ],
-                                                    style={
-                                                        'backgroundColor': colors['background'],
-                                                        'height':'50%',
-                                                        'width':'100%',
-                                                        'display':'inline-block',
-                                                        'vertical-align':'top',
-                                                    }
-                                                ),
-
-                                            ],
-                                            style={
-                                                'backgroundColor': colors['background'],
-                                                'height':'100%',
-                                                'width':'25%',
-                                                'display':'inline-block',
-                                                'vertical-align':'top'
-                                            }
-                                        ),
-                                        
-                                        html.Div(
-                                            id = '3d_container',
-                                            children=[
-
-                                            ],
-                                            style={
-                                                'backgroundColor': colors['background'],
-                                                'height':'100%',
-                                                'width':'50%',
-                                                'display':'inline-block',
-                                                'vertical-align':'top'
-                                            }
-                                        ),
-                                        html.Div(
-                                            children=[
-                                                
-                                                html.Div(
-                                                    children=[
-                                                        html.H2(
-                                                            children='Beam Direction',
-                                                            style={
-                                                                #'textAlign': 'center',
-                                                                'color': colors['text'],
-                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                'marginLeft':'5%',
-                                                                'marginTop':'2%',
-                                                                'paddingBottom':'2%',
-                                                                'borderBottom':'0.1vh solid #FF8000'
-                                                            }
-                                                        ),
-                                                        
-                                                        html.H4(
-                                                            children='X coordinate:',
-                                                            style={
-                                                                'textAlign': 'left',
-                                                                'color': colors['text'],
-                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                'padding': '0',
-                                                                'marginTop': '1%',
-                                                                'marginLeft':'2%',
-                                                                'display':'inline-block',
-                                                                'width':'100%'
-                                                            }
-                                                        ),
-
-                                                        html.Div(
-                                                            children=[
-                                                                dcc.Slider(
-                                                                    id='x_applicator',
-                                                                    min=0,
-                                                                    max=1,
-                                                                    value=1,
-                                                                    step=1,
-                                                                    marks=[],
-                                                                    tooltip={'always visible':True,
-                                                                            'placement':'top'}
-                                                                )
-                                                                
-                                                            ],
-                                                            style={
-                                                                'backgroundColor': colors['background'],
-                                                                'height':'7%',
-                                                                'width':'90%',
-                                                                'marginLeft':'5%',
-                                                                'marginTop':'1%',
-                                                                'display':'inline-block',
-                                                                'vertical-align':'top'
-                                                            }
-                                                        ),
-                                                                
-
-                                                        html.H4(
-                                                            children='Y coordinate:',
-                                                            style={
-                                                                'textAlign': 'left',
-                                                                'color': colors['text'],
-                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                'padding': '0',
-                                                                'marginTop': '1%',
-                                                                'marginLeft':'2%',
-                                                                'display':'inline-block',
-                                                                'width':'100%'
                                                             }
                                                         ),
                                                         
                                                         html.Div(
                                                             children=[
-                                                                dcc.Slider(
-                                                                    id='y_applicator',
-                                                                    min=0,
-                                                                    max=1,
-                                                                    value=1,
-                                                                    step=1,
-                                                                    marks=[],
-                                                                    tooltip={'always visible':True,
-                                                                            'placement':'top'}
-                                                                )
-                                                            ],
-                                                            style={
-                                                                'backgroundColor': colors['background'],
-                                                                'height':'7%',
-                                                                'width':'90%',
-                                                                'marginLeft':'5%',
-                                                                'marginTop':'1%',
-                                                                'display':'inline-block',
-                                                                'vertical-align':'top'
-                                                            }
-                                                        ),
-                                                                
+                                                                html.H2(
+                                                                    children='Applicator',
+                                                                    style={
+                                                                        #'textAlign': 'center',
+                                                                        'color': colors['text'],
+                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                        'marginLeft':'2%',
+                                                                        'marginTop':'1%',
+                                                                        'paddingBottom':'2%',
+                                                                        'borderBottom':'0.1vh solid #FF8000'
+                                                                    }
+                                                                ),
 
-                                                        html.H4(
-                                                            children='Z coordinate:',
-                                                            style={
-                                                                'textAlign': 'left',
-                                                                'color': colors['text'],
-                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                'padding': '0',
-                                                                'marginTop': '1%',
-                                                                'marginLeft':'2%',
-                                                                'display':'inline-block',
-                                                                'width':'100%'
-                                                            }
-                                                        ),
-                                                        html.Div(
-                                                            children=[
-                                                                dcc.Slider(
-                                                                    id='z_applicator',
-                                                                    min=0,
-                                                                    max=1,
-                                                                    value=1,
-                                                                    step=1,
-                                                                    marks=[],
-                                                                    tooltip={'always visible':True,
-                                                                            'placement':'top'}
-                                                                )
-                                                            ],
-                                                            style={
-                                                                'backgroundColor': colors['background'],
-                                                                'height':'7%',
-                                                                'width':'90%',
-                                                                'marginLeft':'5%',
-                                                                'marginTop':'1%',
-                                                                'display':'inline-block',
-                                                                'vertical-align':'top'
-                                                            }
-                                                        ),
-                                                                
-                                                        html.H4(
-                                                            children='Theta (0-180):',
-                                                            style={
-                                                                'textAlign': 'left',
-                                                                'color': colors['text'],
-                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                'padding': '0',
-                                                                'marginTop': '1%',
-                                                                'marginLeft':'2%',
-                                                                'display':'inline-block',
-                                                                'width':'100%'
-                                                            }
-                                                        ),
-                                                        html.Div(
-                                                            children=[
-                                                                dcc.Slider(
-                                                                    id='theta_applicator',
-                                                                    min=0,
-                                                                    max=180,
-                                                                    value=30,
-                                                                    step=1,
-                                                                    marks={0 : {'label': '0', 'style': {'color':'white','font-size':'2rem'}},
-                                                                         180 : {'label': '180', 'style': {'color':'white','font-size':'2rem'}},},
-                                                                    tooltip={'always visible':True,
-                                                                            'placement':'top'}
-                                                                )
-                                                            ],
-                                                            style={
-                                                                'backgroundColor': colors['background'],
-                                                                'height':'7%',
-                                                                'width':'90%',
-                                                                'marginLeft':'5%',
-                                                                #'marginTop':'1%',
-                                                                #'display':'inline-block',
-                                                                'vertical-align':'top'
-                                                            }
-                                                        ),
-                                                                
+                                                                html.Div(
+                                                                    children=[
+                                                                        html.H4(
+                                                                            children='kV Energy',
+                                                                            style={
+                                                                                'textAlign': 'left',
+                                                                                'color': colors['text'],
+                                                                                'font-family': 'Arial, Helvetica, sans-serif',
+                                                                                'padding': '0',
+                                                                                'marginTop': '0vh',
+                                                                                'marginLeft':'2%',
+                                                                                'width':'40%'
+                                                                            }
+                                                                        ),
+                                                                        dcc.Dropdown(
+                                                                            id='kv_energy',
+                                                                            placeholder='Select kV energy...',
+                                                                            options=[
+                                                                                {'label': '70kV ', 'value': '70'},
+                                                                                {'label': '100kV ', 'value': '100'},
+                                                                                {'label': '125kV ', 'value': '125'},
+                                                                                {'label': '200kV ', 'value': '200'},
+                                                                            ],
+                                                                            value=None,
+                                                                            style={
+                                                                                #'width':'80%',
+                                                                                #'height':'4vh',
+                                                                                'marginLeft':'3%',
+                                                                                'marginRight':'5%',
+                                                                                'display':'inline-block',
+                                                                                'width': '80%',
+                                                                                'height':'4.5vh',
+                                                                                'vertical-align':'top',
+                                                                                'marginTop':'0vh'
+                                                                            }
+                                                                        ),
 
-                                                        html.H4(
-                                                            children='Phi (0-360):',
-                                                            style={
-                                                                'textAlign': 'left',
-                                                                'color': colors['text'],
-                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                'padding': '0',
-                                                                'marginTop': '1%',
-                                                                'marginLeft':'2%',
-                                                                'display':'inline-block',
-                                                                'width':'100%'
-                                                            }
-                                                        ),
-                                                        html.Div(
-                                                            children=[
-                                                                dcc.Slider(
-                                                                    id='phi_applicator',
-                                                                    min=0,
-                                                                    max=360,
-                                                                    value=0,
-                                                                    step=1,
-                                                                    marks={0 : {'label': '0', 'style': {'color':'white','font-size':'2rem'}},
-                                                                         360 : {'label': '360', 'style': {'color':'white','font-size':'2rem'}},},
-                                                                    tooltip={'always visible':True,
-                                                                            'placement':'top'}
-                                                                )
-                                                            ],
-                                                            style={
-                                                                'backgroundColor': colors['background'],
-                                                                'height':'7%',
-                                                                'width':'90%',
-                                                                'marginLeft':'5%',
-                                                                #'marginTop':'1%',
-                                                                #'display':'inline-block',
-                                                                'vertical-align':'top'
-                                                            }
-                                                        ),
+                                                                        html.H4(
+                                                                            children='Field Size',
+                                                                            style={
+                                                                                'textAlign': 'left',
+                                                                                'color': colors['text'],
+                                                                                'font-family': 'Arial, Helvetica, sans-serif',
+                                                                                'padding': '0',
+                                                                                'marginTop': '1vh',
+                                                                                'marginLeft':'2%'
+                                                                            }
+                                                                        ),
+                                                                        
+                                                                        dcc.Dropdown(
+                                                                            id='kv_fields',
+                                                                            placeholder='Select field size...',
+                                                                            options=[
+                                                                            ],
+                                                                            value=None,
+                                                                            style={
+                                                                                #'width':'80%',
+                                                                                #'height':'4.5vh',
+                                                                                'marginLeft':'3%',
+                                                                                'marginRight':'5%',
+                                                                                'display':'inline-block',
+                                                                                'width': '80%',
+                                                                                'height':'4.5vh',
+                                                                                'vertical-align':'top',
+                                                                                'marginTop':'0vh',
+                                                                                'line-height':'40px'
+                                                                            }
+                                                                        ),
 
-                                                        html.H4(
-                                                            children='Colimator (0-180):',
-                                                            style={
-                                                                'textAlign': 'left',
-                                                                'color': colors['text'],
-                                                                'font-family': 'Arial, Helvetica, sans-serif',
-                                                                'padding': '0',
-                                                                'marginTop': '1%',
-                                                                'marginLeft':'2%',
-                                                                'display':'inline-block',
-                                                                'width':'100%'
-                                                            }
-                                                        ),
-                                                        html.Div(
-                                                            children=[
-                                                                dcc.Slider(
-                                                                    id='app_rot',
-                                                                    min=0,
-                                                                    max=180,
-                                                                    value=0,
-                                                                    step=1,
-                                                                    marks={0 : {'label': '0', 'style': {'color':'white','font-size':'2rem'}},
-                                                                         180 : {'label': '180', 'style': {'color':'white','font-size':'2rem'}},},
-                                                                    tooltip={'always visible':True,
-                                                                            'placement':'top'}
-                                                                )
+                                                                        html.Button(
+                                                                            'Accept kV applicator',
+                                                                            id = 'Update_3d',
+                                                                            n_clicks = None,
+                                                                            title='Accept the selected applicator',
+                                                                            style={'marginTop':'7%', 'width':'80%', 'height':'5.5vh',
+                                                                                'marginLeft':'10%', 'marginRight':'10%',}
+                                                                        ), 
+                                                                    ],
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'10%',
+                                                                        'width':'100%',
+                                                                        'marginTop':'1%',
+                                                                        'marginBottom':'3%',
+                                                                        'display':'inline-block',
+                                                                        'vertical-align':'top'
+                                                                    }
+                                                                ),   
+
+                                                                    
                                                             ],
                                                             style={
                                                                 'backgroundColor': colors['background'],
-                                                                'height':'7%',
-                                                                'width':'90%',
-                                                                'marginLeft':'5%',
-                                                                #'marginTop':'1%',
-                                                                #'display':'inline-block',
-                                                                'vertical-align':'top'
+                                                                'height':'50%',
+                                                                'width':'100%',
+                                                                'display':'inline-block',
+                                                                'vertical-align':'top',
                                                             }
-                                                        ),
-                                                        
-                                                        html.Button(
-                                                            'Export Setup File',
-                                                            id = 'export_setup',
-                                                            n_clicks = None,
-                                                            title='Export the current setup DOSXYZnrc file',
-                                                            style={'marginTop':'7%', 'width':'80%', 'height':'5.5vh',
-                                                                'marginLeft':'10%', 'marginRight':'10%',}
-                                                        ), 
-                                                        dcc.ConfirmDialog(
-                                                            id='export_dialog',
-                                                            message='',
-                                                        ),
-                                                        
-                                                        dcc.ConfirmDialog(
-                                                            id='plot_3d_surface_message',
-                                                            message='',
                                                         ),
 
                                                     ],
                                                     style={
                                                         'backgroundColor': colors['background'],
-                                                        'height':'70%',
-                                                        'width':'100%',
+                                                        'height':'100%',
+                                                        'width':'25%',
                                                         'display':'inline-block',
                                                         'vertical-align':'top'
                                                     }
                                                 ),
                                                 
+                                                html.Div(
+                                                    id = '3d_container',
+                                                    children=[
+
+                                                    ],
+                                                    style={
+                                                        'backgroundColor': colors['background'],
+                                                        'height':'100%',
+                                                        'width':'50%',
+                                                        'display':'inline-block',
+                                                        'vertical-align':'top'
+                                                    }
+                                                ),
+                                                html.Div(
+                                                    children=[
+                                                        
+                                                        html.Div(
+                                                            children=[
+                                                                html.H2(
+                                                                    children='Beam Direction',
+                                                                    style={
+                                                                        #'textAlign': 'center',
+                                                                        'color': colors['text'],
+                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                        'marginLeft':'5%',
+                                                                        'marginTop':'2%',
+                                                                        'paddingBottom':'2%',
+                                                                        'borderBottom':'0.1vh solid #FF8000'
+                                                                    }
+                                                                ),
+                                                                
+                                                                html.H4(
+                                                                    children='X coordinate:',
+                                                                    style={
+                                                                        'textAlign': 'left',
+                                                                        'color': colors['text'],
+                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                        'padding': '0',
+                                                                        'marginTop': '1%',
+                                                                        'marginLeft':'2%',
+                                                                        'display':'inline-block',
+                                                                        'width':'100%'
+                                                                    }
+                                                                ),
+
+                                                                html.Div(
+                                                                    children=[
+                                                                        dcc.Slider(
+                                                                            id='x_applicator',
+                                                                            min=0,
+                                                                            max=1,
+                                                                            value=1,
+                                                                            step=1,
+                                                                            marks=[],
+                                                                            tooltip={'always visible':True,
+                                                                                    'placement':'top'}
+                                                                        )
+                                                                        
+                                                                    ],
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'7%',
+                                                                        'width':'90%',
+                                                                        'marginLeft':'5%',
+                                                                        'marginTop':'1%',
+                                                                        'display':'inline-block',
+                                                                        'vertical-align':'top'
+                                                                    }
+                                                                ),
+                                                                        
+
+                                                                html.H4(
+                                                                    children='Y coordinate:',
+                                                                    style={
+                                                                        'textAlign': 'left',
+                                                                        'color': colors['text'],
+                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                        'padding': '0',
+                                                                        'marginTop': '1%',
+                                                                        'marginLeft':'2%',
+                                                                        'display':'inline-block',
+                                                                        'width':'100%'
+                                                                    }
+                                                                ),
+                                                                
+                                                                html.Div(
+                                                                    children=[
+                                                                        dcc.Slider(
+                                                                            id='y_applicator',
+                                                                            min=0,
+                                                                            max=1,
+                                                                            value=1,
+                                                                            step=1,
+                                                                            marks=[],
+                                                                            tooltip={'always visible':True,
+                                                                                    'placement':'top'}
+                                                                        )
+                                                                    ],
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'7%',
+                                                                        'width':'90%',
+                                                                        'marginLeft':'5%',
+                                                                        'marginTop':'1%',
+                                                                        'display':'inline-block',
+                                                                        'vertical-align':'top'
+                                                                    }
+                                                                ),
+                                                                        
+
+                                                                html.H4(
+                                                                    children='Z coordinate:',
+                                                                    style={
+                                                                        'textAlign': 'left',
+                                                                        'color': colors['text'],
+                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                        'padding': '0',
+                                                                        'marginTop': '1%',
+                                                                        'marginLeft':'2%',
+                                                                        'display':'inline-block',
+                                                                        'width':'100%'
+                                                                    }
+                                                                ),
+                                                                html.Div(
+                                                                    children=[
+                                                                        dcc.Slider(
+                                                                            id='z_applicator',
+                                                                            min=0,
+                                                                            max=1,
+                                                                            value=1,
+                                                                            step=1,
+                                                                            marks=[],
+                                                                            tooltip={'always visible':True,
+                                                                                    'placement':'top'}
+                                                                        )
+                                                                    ],
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'7%',
+                                                                        'width':'90%',
+                                                                        'marginLeft':'5%',
+                                                                        'marginTop':'1%',
+                                                                        'display':'inline-block',
+                                                                        'vertical-align':'top'
+                                                                    }
+                                                                ),
+                                                                        
+                                                                html.H4(
+                                                                    children='Theta (0-180):',
+                                                                    style={
+                                                                        'textAlign': 'left',
+                                                                        'color': colors['text'],
+                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                        'padding': '0',
+                                                                        'marginTop': '1%',
+                                                                        'marginLeft':'2%',
+                                                                        'display':'inline-block',
+                                                                        'width':'100%'
+                                                                    }
+                                                                ),
+                                                                html.Div(
+                                                                    children=[
+                                                                        dcc.Slider(
+                                                                            id='theta_applicator',
+                                                                            min=0,
+                                                                            max=180,
+                                                                            value=30,
+                                                                            step=1,
+                                                                            marks={0 : {'label': '0', 'style': {'color':'white','font-size':'2rem'}},
+                                                                                180 : {'label': '180', 'style': {'color':'white','font-size':'2rem'}},},
+                                                                            tooltip={'always visible':True,
+                                                                                    'placement':'top'}
+                                                                        )
+                                                                    ],
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'7%',
+                                                                        'width':'90%',
+                                                                        'marginLeft':'5%',
+                                                                        #'marginTop':'1%',
+                                                                        #'display':'inline-block',
+                                                                        'vertical-align':'top'
+                                                                    }
+                                                                ),
+                                                                        
+
+                                                                html.H4(
+                                                                    children='Phi (0-360):',
+                                                                    style={
+                                                                        'textAlign': 'left',
+                                                                        'color': colors['text'],
+                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                        'padding': '0',
+                                                                        'marginTop': '1%',
+                                                                        'marginLeft':'2%',
+                                                                        'display':'inline-block',
+                                                                        'width':'100%'
+                                                                    }
+                                                                ),
+                                                                html.Div(
+                                                                    children=[
+                                                                        dcc.Slider(
+                                                                            id='phi_applicator',
+                                                                            min=0,
+                                                                            max=360,
+                                                                            value=0,
+                                                                            step=1,
+                                                                            marks={0 : {'label': '0', 'style': {'color':'white','font-size':'2rem'}},
+                                                                                360 : {'label': '360', 'style': {'color':'white','font-size':'2rem'}},},
+                                                                            tooltip={'always visible':True,
+                                                                                    'placement':'top'}
+                                                                        )
+                                                                    ],
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'7%',
+                                                                        'width':'90%',
+                                                                        'marginLeft':'5%',
+                                                                        #'marginTop':'1%',
+                                                                        #'display':'inline-block',
+                                                                        'vertical-align':'top'
+                                                                    }
+                                                                ),
+
+                                                                html.H4(
+                                                                    children='Colimator (0-180):',
+                                                                    style={
+                                                                        'textAlign': 'left',
+                                                                        'color': colors['text'],
+                                                                        'font-family': 'Arial, Helvetica, sans-serif',
+                                                                        'padding': '0',
+                                                                        'marginTop': '1%',
+                                                                        'marginLeft':'2%',
+                                                                        'display':'inline-block',
+                                                                        'width':'100%'
+                                                                    }
+                                                                ),
+                                                                html.Div(
+                                                                    children=[
+                                                                        dcc.Slider(
+                                                                            id='app_rot',
+                                                                            min=0,
+                                                                            max=180,
+                                                                            value=0,
+                                                                            step=1,
+                                                                            marks={0 : {'label': '0', 'style': {'color':'white','font-size':'2rem'}},
+                                                                                180 : {'label': '180', 'style': {'color':'white','font-size':'2rem'}},},
+                                                                            tooltip={'always visible':True,
+                                                                                    'placement':'top'}
+                                                                        )
+                                                                    ],
+                                                                    style={
+                                                                        'backgroundColor': colors['background'],
+                                                                        'height':'7%',
+                                                                        'width':'90%',
+                                                                        'marginLeft':'5%',
+                                                                        #'marginTop':'1%',
+                                                                        #'display':'inline-block',
+                                                                        'vertical-align':'top'
+                                                                    }
+                                                                ),
+                                                                
+                                                                html.Button(
+                                                                    'Export Setup File',
+                                                                    id = 'export_setup',
+                                                                    n_clicks = None,
+                                                                    title='Export the current setup DOSXYZnrc file',
+                                                                    style={'marginTop':'7%', 'width':'80%', 'height':'5.5vh',
+                                                                        'marginLeft':'10%', 'marginRight':'10%',}
+                                                                ), 
+                                                                dcc.ConfirmDialog(
+                                                                    id='export_dialog',
+                                                                    message='',
+                                                                ),
+                                                                
+                                                                dcc.ConfirmDialog(
+                                                                    id='plot_3d_surface_message',
+                                                                    message='',
+                                                                ),
+
+                                                            ],
+                                                            style={
+                                                                'backgroundColor': colors['background'],
+                                                                'height':'70%',
+                                                                'width':'100%',
+                                                                'display':'inline-block',
+                                                                'vertical-align':'top'
+                                                            }
+                                                        ),
+                                                        
+                                                    ],
+                                                    style={
+                                                        'backgroundColor': colors['background'],
+                                                        'height':'100%',
+                                                        'width':'25%',
+                                                        'display':'inline-block',
+                                                    }
+                                                ),
+
                                             ],
                                             style={
-                                                'backgroundColor': colors['background'],
-                                                'height':'100%',
-                                                'width':'25%',
-                                                'display':'inline-block',
+                                                'backgroundColor': 'green',
+                                                'height':'82vh',
+                                                'marginLeft':'1.5vh',
+                                                'marginRight':'1.5vh'
                                             }
                                         ),
-
-                                    ],
-                                    style={
-                                        'backgroundColor': 'green',
-                                        'height':'82vh',
-                                        'marginLeft':'1.5vh',
-                                        'marginRight':'1.5vh'
-                                    }
-                                ),
+                                    ]
+                                )                        
                             ]
-                        )                        
+                        )   
                     ]
-                )   
+                )
             ]
-        )  
+        ) 
     ]
 )
 
 #################################################################################
 ################################ CALLBACKS ######################################
 #################################################################################
+
+@app.callback([Output('main-application', 'hidden'),
+            Output('disclaimer', 'hidden')],
+              [Input('acknowledge-button', 'n_clicks')])
+def display_main_content(n_clicks):
+    if n_clicks > 0:
+        return [False, True]
+    else:
+        raise PreventUpdate
+
+
 
 @app.callback([Output('scan_info_table','children'),
                Output('tab1_view_CT','value'),
@@ -4455,17 +4596,35 @@ def upload_dicom_ct(click_ct, click_struct):
                                 dummy_cube = np.zeros((SCAN.HFS_cube.shape[0], SCAN.HFS_cube.shape[1], SCAN.HFS_cube.shape[2]),dtype=np.int8)
 
                                 try:
+                                    current_z = 9999
                                     for seq in m.ContourSequence:
                                         xs = seq.ContourData[::3]
                                         ys = seq.ContourData[1::3]
                                         zs = seq.ContourData[2::3]
 
-                                        xs_idx = list(map(lambda a: (np.abs(SCAN.HFS_xs - a)).argmin(), xs))
-                                        ys_idx = list(map(lambda a: (np.abs(SCAN.HFS_ys - a)).argmin(), ys))
-                                        zs_idx = list(map(lambda a: (np.abs(SCAN.HFS_zs - a)).argmin(), zs))
+                                        if zs[0] != current_z:
+                                            current_z = zs[0]
 
-                                        xx, yy = polygon(xs_idx, ys_idx)
-                                        dummy_cube[zs_idx[0],yy,xx] = 1
+                                            xs_idx = list(map(lambda a: (np.abs(SCAN.HFS_xs - a)).argmin(), xs))
+                                            ys_idx = list(map(lambda a: (np.abs(SCAN.HFS_ys - a)).argmin(), ys))
+                                            zs_idx = list(map(lambda a: (np.abs(SCAN.HFS_zs - a)).argmin(), zs))
+
+                                            xx, yy = polygon(xs_idx, ys_idx)
+                                            dummy_cube[zs_idx[0],yy,xx] = 1
+                                        
+                                        else: #If a structure is a doughnut shape the first polygon is the outer region and second polygon is the inner region
+                                            xs_idx = list(map(lambda a: (np.abs(SCAN.HFS_xs - a)).argmin(), xs))
+                                            ys_idx = list(map(lambda a: (np.abs(SCAN.HFS_ys - a)).argmin(), ys))
+                                            zs_idx = list(map(lambda a: (np.abs(SCAN.HFS_zs - a)).argmin(), zs))
+
+                                            xx, yy = polygon(xs_idx, ys_idx)
+
+                                            if np.any(dummy_cube[zs_idx[0],yy,xx]==1):
+                                                #Some voxels of this second layer contain 1s => this is most likely a donut
+                                                dummy_cube[zs_idx[0],yy,xx] = 0
+                                            else:
+                                                #None of the voxels in the second layer contain 1s => this must be a second separate island of the contour on the same slice
+                                                dummy_cube[zs_idx[0],yy,xx] = 1
 
                                     #dummy_cube[dummy_cube==0] = None
                                     print('Structure volume created!')
@@ -4987,6 +5146,8 @@ def update_graph_CT(my_width, my_slice, tissue_preset, my_view):
         P = PEGS_A
     elif tissue_preset == 'CIRS':
         P = PEGS_CIRS
+    elif tissue_preset == 'MESH':
+        P = PEGS_MESH
     else:
         raise PreventUpdate
         
@@ -5027,6 +5188,8 @@ def select_anatomy(location):
                 PEGS = pd.DataFrame(PEGS_A)
             elif location == 'CIRS':
                 PEGS = pd.DataFrame(PEGS_CIRS)
+            elif location == 'MESH':
+                PEGS = pd.DataFrame(PEGS_MESH)
             else:
                 raise PreventUpdate
 
@@ -5145,10 +5308,10 @@ def create_phtm(n_clicks, range_x, range_y, range_z):
                 
                 try:
                     for item in SCAN.selected_materials:
-                        int(item.MinCT)
-                        int(item.MaxCT)
+                        float(item.MinCT)
+                        float(item.MaxCT)
                 except:
-                    message = 'Min/Max CT values are not integers!'
+                    message = 'Min/Max CT values are not numeric!'
                     return True, message, True
                     raise PreventUpdate
 
@@ -5175,10 +5338,16 @@ def create_phtm(n_clicks, range_x, range_y, range_z):
                 print('Creating the phantom...')
                 global worker_process
                 
-                worker_process = threading.Thread(target=write_phantom_file, args=(ready_cube, b_x, b_y, b_z, folder, SCAN.selected_materials,))
+                worker_process = threading.Thread(target=create_phantom, args=(ready_cube, b_x, b_y, b_z, folder, SCAN.selected_materials,))
                 worker_process.start()                
+                #mixer.music.play()
 
-                message = 'Please note phantom voxels:z=' + str(xyz[0]) + ', y=' + str(xyz[1]) + ', x=' + str(xyz[2]) + '. Please click OK and wait for the phantom file to be created!'
+                
+                #print('Creating numpy array file...')
+                #np.save(folder + '\CT_array', savefile)
+                #dose_distribution = np.loadtxt('dose_array.txt') used to load that file
+                #print('Numpy array file created!')
+                message = 'Please note phantom voxels: x=' + str(xyz[2]) + ', y=' + str(xyz[1]) + ', z=' + str(xyz[0]) + '. Please click OK and wait for the phantom file to be created!'
                 return False, message, True
             
         else:
@@ -5210,6 +5379,7 @@ def retrieve_output(n):
         if hasattr(SCAN, 'progress'):
             if n:
                 if SCAN.phantom_created == True:
+                    #mixer.music.stop()
                     return 100, '100%', 0, 'button-pressed', 'Phantom successfully created!', True
 
                 # job is still running, get progress and update progress bar
@@ -5349,7 +5519,56 @@ def update_3D_plot(n_clicks, x, y, z, theta, phi, app_rot, field_size, energy):
             combo_figure.add_scatter3d(x = X, y = Y, z = Z, mode = 'lines+markers')
             
             #Creating a PHSP plane
-            original_phsp = generate_original_phsp(field_size)
+            if field_size == 'A':
+                original_phsp = genCIRC(2,0)
+            elif field_size == 'B':
+                original_phsp = genCIRC(3,0)
+            elif field_size == 'C':
+                original_phsp = genCIRC(4,0)
+            elif field_size == 'D':
+                original_phsp = genCIRC(5,0)
+            elif field_size == 'E':
+                original_phsp = genCIRC(6,0)
+            elif field_size == 'F':
+                original_phsp = genCIRC(8,0)
+            elif field_size == 'G':
+                original_phsp = genCIRC(10,0)
+            elif field_size == 'H':
+                original_phsp = genCIRC(14,0)
+            elif field_size == 'I':
+                original_phsp = genRECT(6,6,0)
+            elif field_size == 'J':
+                original_phsp = genRECT(8,6,0)
+            elif field_size == 'K':
+                original_phsp = genRECT(10,10,0)
+            elif field_size == 'L':
+                original_phsp = genRECT(14,10,0)
+            elif field_size == 'M':
+                original_phsp = genCIRC(5,0)
+            elif field_size == 'N':
+                original_phsp = genRECT(6,6,0)
+            elif field_size == 'O':
+                original_phsp = genRECT(8,6,0)
+            elif field_size == 'P':
+                original_phsp = genRECT(8,8,0)
+            elif field_size == 'Q':
+                original_phsp = genRECT(10,6,0)
+            elif field_size == 'R':
+                original_phsp = genRECT(10,8,0)
+            elif field_size == 'S':
+                original_phsp = genRECT(10,10,0)
+            elif field_size == 'T':
+                original_phsp = genRECT(12,12,0)
+            elif field_size == 'U':
+                original_phsp = genRECT(15,8,0)
+            elif field_size == 'V':
+                original_phsp = genRECT(15,10,0)
+            elif field_size == 'W':
+                original_phsp = genRECT(15,15,0)
+            elif field_size == 'X':
+                original_phsp = genRECT(20,10,0)
+            elif field_size == 'Y':
+                original_phsp = genRECT(20,20,0)
 
             #Moving PHSP in spherical polar coordinates
             new_phsp = move_plane(plane=original_phsp, spin=app_rot, theta=theta, phi=phi)
@@ -5441,7 +5660,7 @@ def export_set(n_clicks, energy, field, xapp, yapp, zapp, thetapp, phiapp, colap
             phantom_file_path = gui_select_file('Please select the phantom file')
             phantom_file_name = phantom_file_path.split('\\')[-1]
             
-            write_input_file(phantom_file_name, str(field), str(energy)+str(field), xapp, yapp, zapp, thetapp, phiapp, colapp, phsp_file_path)
+            write_phantom_file(phantom_file_name, str(field), str(energy)+str(field), xapp, yapp, zapp, thetapp, phiapp, colapp, phsp_file_path)
 
             return 'button-pressed', 'Input file created successfully!', True
 
@@ -5453,3 +5672,11 @@ if __name__ == '__main__':
     webbrowser.open_new_tab(url)
     
     app.server.run(port=8050, host='127.0.0.1')
+    
+    #app.run_server(debug=False)
+
+
+# # =====TESTING ZONE=====
+
+
+
