@@ -2422,7 +2422,7 @@ app.layout = html.Div(
                                                                             id='rbe_dose',
                                                                             options=[
                                                                                 {'label': 'None', 'value': 'none'},
-                                                                                {'label': '1.4 RBE', 'value': 'rbe'},                                                                        
+                                                                                {'label': '1.14 RBE', 'value': 'rbe'},                                                                        
                                                                             ],
                                                                             value='none',
                                                                             labelStyle={'display':'inline-block',
@@ -3499,8 +3499,8 @@ def plot_graph_CT(hu_window, slider1, slider2, slider3, update_click, selected_s
                     print('Dose is rescaled based on selected applicator and MU')
 
                     if rbe_dose == 'rbe':
-                        mc_to_real_mu *= 1.4
-                        print('RBE factor of 1.4 taken into account')
+                        mc_to_real_mu *= 1.14
+                        print('RBE factor of 1.14 taken into account')
 
                     if bio_dose == 'bed':
                         pre_bed_dose = np.copy(SCAN.dose_cube) * mc_to_real_mu
