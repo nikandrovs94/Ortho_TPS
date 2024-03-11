@@ -423,6 +423,12 @@ hr {
   border-color: #FF8000;
 }
 
+@font-face {
+  font-family: 'titlefont';
+  src: url('ethnocentric.otf') format('opentype');
+  font-weight: normal;
+  font-size: normal;
+}
 
 
 /* Clearing
