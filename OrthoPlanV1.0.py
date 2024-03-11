@@ -382,7 +382,6 @@ def createFolder(directory):
         print('Error: Creating directory.' + directory)
 
 
-# In[6]:
 
 
 def copy_rename_DICOM(old_path, new_path):
